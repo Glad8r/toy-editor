@@ -14,7 +14,7 @@ interface VideoPreviewAreaProps {
 }
 
 const VideoPreviewArea: React.FC<VideoPreviewAreaProps> = ({ virtualTimeline, onToggleVideoPreview }) => {
-    const { nodes, stateManager } = useCanvas();
+    const { nodes, stateManager, addMediaFromFile, addMediaToTimeline } = useCanvas();
 
     // Simplified state - only what's needed for display
     const [currentInstruction, setCurrentInstruction] = useState<VideoPlayerInstruction | null>(null);
@@ -316,8 +316,6 @@ const VideoPreviewArea: React.FC<VideoPreviewAreaProps> = ({ virtualTimeline, on
     const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const files = e.target.files;
         if (!files) return;
-
-        const { addMediaFromFile, addMediaToTimeline } = useCanvas() as any;
 
         for (let i = 0; i < files.length; i++) {
             const file = files[i];
