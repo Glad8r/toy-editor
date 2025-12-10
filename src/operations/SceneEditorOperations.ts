@@ -3,7 +3,7 @@
  * Direct state mutations instead of operation pattern
  */
 
-import { SceneEditorCell } from '../types/timeline';
+import { SceneEditorCell, NodeType, MediaNode } from '../types/timeline';
 
 /**
  * Simple operation classes for compatibility with existing components
@@ -194,6 +194,19 @@ export class AddSceneEditorCellOperation {
     const canvas = context.getCanvas();
     const cells = canvas.sceneEditor?.cells || [];
 
+    // Find the media node to get its actual duration
+    const mediaNode = canvas.nodes.find(
+      (node: any) => node.id === this.mediaNodeId && 
+      (node.type === NodeType.IMAGE || node.type === NodeType.VIDEO)
+    ) as MediaNode | undefined;
+
+    // Get duration from media node: videos use their duration, images default to 3 seconds
+    const duration = mediaNode 
+      ? (mediaNode.type === NodeType.VIDEO 
+          ? (mediaNode.data.duration || 3) 
+          : 3)
+      : 3; // Fallback to 3 seconds if node not found
+
     const cellId = `cell-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
     const newPosition = this.position !== undefined ? this.position : cells.length;
 
@@ -202,7 +215,7 @@ export class AddSceneEditorCellOperation {
       mediaNodeId: this.mediaNodeId,
       position: newPosition,
       startTime: 0,
-      duration: 0,
+      duration: duration, // Use actual media duration instead of 0
       trimStart: 0,
       trimEnd: 0
     };
@@ -217,7 +230,6 @@ export class AddSceneEditorCellOperation {
 
     // CRITICAL FIX: Recalculate startTime for all clips after adding
     // This ensures VirtualTimelineManager can correctly map playhead position to clips
-    // Note: The new cell has duration=0, which will be updated by updateTimelineState
     let cumulativeTime = 0;
     updatedCells.forEach((cell: SceneEditorCell) => {
       cell.startTime = cumulativeTime;
@@ -225,6 +237,7 @@ export class AddSceneEditorCellOperation {
       const originalDuration = cell.duration || 0;
       const trimStart = cell.trimStart || 0;
       const trimEnd = cell.trimEnd || 0;
+      // Use actual duration, but ensure minimum of 0.1s to prevent zero-duration clips
       const effectiveDuration = Math.max(0.1, originalDuration - trimStart - trimEnd);
       cumulativeTime += effectiveDuration;
     });
