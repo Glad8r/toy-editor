@@ -10,4 +10,7 @@ export default defineConfig({
       '@': path.resolve(__dirname, './src'),
     },
   },
+    // Enable more verbose logging
+  logLevel: 'info', // or 'warn', 'error', 'silent'
+  clearScreen: false, // Keep previous output visible
 })
