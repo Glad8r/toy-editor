@@ -7,7 +7,7 @@ import TimelineClip from './TimelineClip';
 import TimelinePlayhead from './TimelinePlayhead';
 import { ZoomLevel, createZoomSystem } from './zoomSystem';
 import { VirtualTimelineManager } from './VirtualTimelineManager';
-import { MoveTimelineClipOperation, MoveSceneEditorCellOperation } from '../../operations/SceneEditorOperations';
+import { MoveTimelineClipOperation, MoveSceneEditorCellOperation, AddSceneEditorCellOperation } from '../../operations/SceneEditorOperations';
 import { TimelineMode, useTimelineMode } from './TimelineModeContext';
 import { useRearrangeDragHandler } from './RearrangeDragHandler';
 import RearrangeIndicators from './RearrangeIndicators';
@@ -113,6 +113,73 @@ const TimelineCanvas: React.FC<TimelineCanvasProps> = ({
         (node.type === NodeType.IMAGE || node.type === NodeType.VIDEO)
     ) : null;
 
+    /**
+     * Handle drag over on timeline track - allows dropping media nodes on empty space
+     * This enables dragging media thumbnails from inspector directly onto the timeline
+     */
+    const handleTrackDragOver = (e: React.DragEvent) => {
+        // Only allow drops if we're not in the middle of a rearrange drag
+        if (rearrangeDragHandler.dragState.isDragging) {
+            return;
+        }
+
+        // Check if this is a media node being dragged (from inspector)
+        const hasMediaNodeData = e.dataTransfer.types.includes('application/media-node');
+        if (hasMediaNodeData) {
+            e.preventDefault();
+            e.stopPropagation();
+            e.dataTransfer.dropEffect = 'copy';
+        }
+    };
+
+    /**
+     * Handle drop on timeline track - adds media node to timeline at drop position
+     * Calculates the insertion position based on the X coordinate of the drop
+     */
+    const handleTrackDrop = (e: React.DragEvent) => {
+        e.preventDefault();
+        e.stopPropagation();
+
+        // Check if this is a media node being dropped (from inspector)
+        const mediaNodeData = e.dataTransfer.getData('application/media-node');
+        if (!mediaNodeData) {
+            return; // Not a media node drop, ignore
+        }
+
+        try {
+            const { nodeId } = JSON.parse(mediaNodeData);
+            
+            // Calculate drop position based on X coordinate
+            const rect = e.currentTarget.getBoundingClientRect();
+            const dropX = e.clientX - rect.left;
+            
+            // Convert pixel position to time using zoom system
+            const dropTime = virtualTimeline 
+                ? virtualTimeline.getTimeFromPixelClick(dropX)
+                : zoomSystem.getTimeFromPixel(dropX);
+            
+            // Find the appropriate insertion position based on time
+            // Insert after the last clip that starts before the drop time
+            let insertPosition = cellsToRender.length;
+            for (let i = 0; i < cellsToRender.length; i++) {
+                const cell = cellsToRender[i];
+                const cellStartTime = cell.startTime || 0;
+                if (dropTime < cellStartTime) {
+                    insertPosition = i;
+                    break;
+                }
+            }
+            
+            // Add the media node to the timeline at the calculated position
+            const operation = new AddSceneEditorCellOperation(nodeId, insertPosition);
+            stateManager.getOperationManager().executeWithContext(operation, stateManager);
+            
+            console.log('📥 Media node dropped on timeline at position', insertPosition, 'time:', dropTime.toFixed(2));
+        } catch (error) {
+            console.error('Error parsing media node data on timeline drop:', error);
+        }
+    };
+
     return (
         <div className={`timeline-canvas ${timelineMode}-mode`}>
             {/* Shared scroll container for ruler and clips */}
@@ -137,6 +204,8 @@ const TimelineCanvas: React.FC<TimelineCanvasProps> = ({
                         height: '80px',
                         overflow: 'visible'
                     }}
+                    onDragOver={handleTrackDragOver}
+                    onDrop={handleTrackDrop}
                 >
                     {/* Render clips with absolute positioning */}
                     {cellsToRender.map((cell) => {
