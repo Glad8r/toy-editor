@@ -42,7 +42,7 @@
 
   body {
     @apply font-jost bg-[#FFFFFE] text-black antialiased;
-    cursor: url('/favicon.ico'), auto;
+    /*cursor: url('/favicon.ico'), auto;*/
   }
 }
 
