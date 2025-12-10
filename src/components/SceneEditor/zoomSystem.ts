@@ -14,7 +14,7 @@ export interface ZoomSystem {
 
 // Core zoom scales optimized for short films (<30 minutes)
 export const ZOOM_SCALES: Record<ZoomLevel, number> = {
-    overview: 20,  // 30min film = 36,000px (see whole project)
+    overview: 5,   // 30min film = 9,000px (see whole project) - decreased from 20
     normal: 60,    // 5min scene = 18,000px (comfortable editing)
     detail: 120    // 2min scene = 14,400px (precise timing)
 };
@@ -67,6 +67,51 @@ export const createZoomSystem = (level: ZoomLevel): ZoomSystem => {
                 default:
                     return 1;
             }
+        },
+
+        getTimelineWidth: (totalDuration: number): number => {
+            return totalDuration * pixelsPerSecond;
+        }
+    };
+};
+
+/**
+ * Create a zoom system with custom pixels per second (for continuous zoom)
+ * Maps pixelsPerSecond to the closest zoom level for metadata purposes
+ */
+export const createZoomSystemFromPixelsPerSecond = (pixelsPerSecond: number): ZoomSystem => {
+    // Determine closest zoom level for metadata
+    let level: ZoomLevel = 'normal';
+    const overviewPPS = ZOOM_SCALES.overview;
+    const normalPPS = ZOOM_SCALES.normal;
+    const detailPPS = ZOOM_SCALES.detail;
+
+    if (pixelsPerSecond <= (overviewPPS + normalPPS) / 2) {
+        level = 'overview';
+    } else if (pixelsPerSecond >= (normalPPS + detailPPS) / 2) {
+        level = 'detail';
+    } else {
+        level = 'normal';
+    }
+
+    return {
+        level,
+        pixelsPerSecond,
+
+        getPixelFromTime: (seconds: number): number => {
+            return seconds * pixelsPerSecond;
+        },
+
+        getTimeFromPixel: (pixel: number): number => {
+            return pixel / pixelsPerSecond;
+        },
+
+        getKeyframeCount: (clipDuration: number): number => {
+            // Use level-based logic but scale based on actual pixelsPerSecond
+            const baseCount = level === 'overview' ? 1 : level === 'normal' ? 3 : 5;
+            const scale = pixelsPerSecond / ZOOM_SCALES[level];
+            // Scale keyframe count based on clip duration and zoom level
+            return Math.min(10, Math.max(1, Math.floor(baseCount * scale * Math.max(1, clipDuration / 3))));
         },
 
         getTimelineWidth: (totalDuration: number): number => {

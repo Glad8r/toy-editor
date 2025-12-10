@@ -50,6 +50,7 @@ export interface VirtualTimelineManager {
     // Integration with existing zoom system
     getPlayheadPixelPosition(globalTime: number): number;
     getTimeFromPixelClick(pixelX: number): number;
+    getZoomSystem(): ZoomSystem;
     updateZoomSystem(newZoomSystem: ZoomSystem): void;
 
     // Playback state
@@ -261,8 +262,12 @@ export class VirtualTimelineManagerImpl implements VirtualTimelineManager {
         return this.zoomSystem.getTimeFromPixel(pixelX);
     }
 
+    getZoomSystem(): ZoomSystem {
+        return this.zoomSystem;
+    }
+
     updateZoomSystem(newZoomSystem: ZoomSystem): void {
-        console.log('🔍 VTM: Updating zoom system to', newZoomSystem.level, 'at', newZoomSystem.pixelsPerSecond, 'px/s');
+        //console.log('🔍 VTM: Updating zoom system to', newZoomSystem.level, 'at', newZoomSystem.pixelsPerSecond, 'px/s');
         this.zoomSystem = newZoomSystem;
 
         // Notify subscribers that the timeline may have changed dimensions
@@ -475,7 +480,31 @@ export class VirtualTimelineManagerImpl implements VirtualTimelineManager {
         }
     }
 
+    // Throttle timeline change notifications to prevent cascading updates
+    private lastTimelineChangeNotification = 0;
+    private timelineChangeNotificationPending = false;
+
     private notifyTimelineChange(): void {
+        const now = performance.now();
+        const timeSinceLastNotification = now - this.lastTimelineChangeNotification;
+        
+        // Throttle to max 60fps (16ms between notifications)
+        if (timeSinceLastNotification < 16 && !this.timelineChangeNotificationPending) {
+            // Schedule delayed notification
+            this.timelineChangeNotificationPending = true;
+            requestAnimationFrame(() => {
+                this.timelineChangeNotificationPending = false;
+                this.lastTimelineChangeNotification = performance.now();
+                this.notifyTimelineChangeImmediate();
+            });
+            return;
+        }
+
+        this.lastTimelineChangeNotification = now;
+        this.notifyTimelineChangeImmediate();
+    }
+
+    private notifyTimelineChangeImmediate(): void {
         const state = this.getTimelineState();
         this.timelineChangeCallbacks.forEach(callback => {
             try {

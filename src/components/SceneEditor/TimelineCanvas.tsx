@@ -1,11 +1,11 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useCanvas } from '../../contexts/TimelineContext';
 import { SceneEditorCell as SceneEditorCellType } from '../../types/timeline';
 import { NodeType } from '../../types/timeline';
 import TimelineRuler from './TimelineRuler';
 import TimelineClip from './TimelineClip';
 import TimelinePlayhead from './TimelinePlayhead';
-import { ZoomLevel, createZoomSystem } from './zoomSystem';
+import { ZoomLevel, createZoomSystem, ZoomSystem } from './zoomSystem';
 import { VirtualTimelineManager } from './VirtualTimelineManager';
 import { MoveTimelineClipOperation, MoveSceneEditorCellOperation, AddSceneEditorCellOperation } from '../../operations/SceneEditorOperations';
 import { TimelineMode, useTimelineMode } from './TimelineModeContext';
@@ -59,8 +59,33 @@ const TimelineCanvas: React.FC<TimelineCanvasProps> = ({
     // Get the scene editor data
     const sceneEditor = stateManager.getSceneEditor();
 
-    // Create zoom system for this zoom level
-    const zoomSystem = createZoomSystem(zoomLevel);
+    // Track VTM zoom system changes to force re-renders
+    const [vtmZoomSystem, setVtmZoomSystem] = useState<ZoomSystem | null>(null);
+
+    // Subscribe to VTM timeline changes to detect zoom system updates
+    useEffect(() => {
+        if (!virtualTimeline) {
+            setVtmZoomSystem(null);
+            return;
+        }
+
+        const unsubscribe = virtualTimeline.onTimelineChange(() => {
+            // When timeline changes (including zoom changes), update zoom system
+            const currentZoomSystem = virtualTimeline.getZoomSystem();
+            setVtmZoomSystem(currentZoomSystem);
+        });
+
+        // Initialize
+        setVtmZoomSystem(virtualTimeline.getZoomSystem());
+
+        return () => unsubscribe();
+    }, [virtualTimeline]);
+
+    // Get zoom system from VTM if available, otherwise create from zoomLevel prop
+    // This ensures we use the actual zoom system from VTM (which may have custom pixelsPerSecond)
+    const zoomSystem = virtualTimeline && vtmZoomSystem
+        ? vtmZoomSystem
+        : createZoomSystem(zoomLevel);
 
     // Use migrated cells if available, otherwise fall back to original cells
     const cellsToRender = migratedCells || sceneEditor?.cells || [];

@@ -22,14 +22,33 @@ const SceneEditor: React.FC = () => {
         return updateTimelineState(sceneEditor, nodes);
     }, [sceneEditor, nodes]);
 
+    // Store current zoom system to preserve it across VTM recreations
+    const currentZoomSystemRef = useRef<ReturnType<typeof createZoomSystem> | null>(null);
+    
     // Create shared VirtualTimelineManager instance for synchronization
     const virtualTimelineManager = useMemo(() => {
         if (!migratedSceneEditor?.cells) return null;
 
-        // Create with normal zoom level initially
-        const zoomSystem = createZoomSystem('normal');
-        return createVirtualTimelineManager(zoomSystem, migratedSceneEditor.cells);
+        // Use preserved zoom system if available, otherwise default to normal
+        const zoomSystem = currentZoomSystemRef.current || createZoomSystem('normal');
+        const vtm = createVirtualTimelineManager(zoomSystem, migratedSceneEditor.cells);
+        
+        // Store the zoom system for future recreations
+        currentZoomSystemRef.current = vtm.getZoomSystem();
+        
+        return vtm;
     }, [migratedSceneEditor?.cells]);
+    
+    // Preserve zoom system when VTM updates it externally (e.g., from zoom slider)
+    useEffect(() => {
+        if (virtualTimelineManager) {
+            const unsubscribe = virtualTimelineManager.onTimelineChange(() => {
+                // Update stored zoom system when VTM's zoom changes
+                currentZoomSystemRef.current = virtualTimelineManager.getZoomSystem();
+            });
+            return unsubscribe;
+        }
+    }, [virtualTimelineManager]);
 
     // Keyboard shortcuts for scene editor
     useEffect(() => {
@@ -91,10 +110,10 @@ const SceneEditor: React.FC = () => {
                 tabIndex={0} // Make container focusable for keyboard events
                 style={{ outline: 'none' }} // Remove focus outline
             >
-                <VideoPreviewArea virtualTimeline={virtualTimelineManager} />
+                <VideoPreviewArea virtualTimeline={virtualTimelineManager || undefined} />
                 {virtualTimelineManager && (
                     <VideoPlaybackPanel
-                        virtualTimeline={virtualTimelineManager}
+                        virtualTimeline={virtualTimelineManager || undefined}
                         onTogglePlayback={() => virtualTimelineManager.setPlaying(!virtualTimelineManager.isPlaying())}
                         onSkipPrevious={() => {
                             const currentClip = virtualTimelineManager.getCurrentClip();
@@ -117,7 +136,7 @@ const SceneEditor: React.FC = () => {
                     />
                 )}
                 {panelVisibility.bottom && (
-                    <TimelineArea virtualTimelineManager={virtualTimelineManager} />
+                    <TimelineArea virtualTimelineManager={virtualTimelineManager || undefined} />
                 )}
             </div>
         </TimelineModeProvider>

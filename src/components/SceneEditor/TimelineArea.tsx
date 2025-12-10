@@ -1,9 +1,9 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useCanvas } from '../../contexts/TimelineContext';
 import TimelineControls from './TimelineControls';
 import TimelineCanvas from './TimelineCanvas';
 import { updateTimelineState, validateTimelineIntegrity } from './timelineUtils';
-import { ZoomLevel, createZoomSystem } from './zoomSystem';
+import { ZoomLevel, createZoomSystem, ZoomSystem } from './zoomSystem';
 import { createVirtualTimelineManager, VirtualTimelineManager } from './VirtualTimelineManager';
 import { useTimelineMode } from './TimelineModeContext';
 
@@ -83,8 +83,18 @@ const TimelineArea: React.FC<TimelineAreaProps> = ({ virtualTimelineManager }) =
     // Phase 2B: Update timeline state with migration
     const [migratedSceneEditor, setMigratedSceneEditor] = useState(sceneEditor);
 
-    // Create zoom system for current zoom level
-    const zoomSystem = useMemo(() => createZoomSystem(zoomLevel), [zoomLevel]);
+    // Get zoom system from VTM if available, otherwise create from zoomLevel
+    // This ensures we use the actual zoom system from VTM (which may have custom pixelsPerSecond)
+    // Use a state to track VTM's zoom system so we can force updates when it changes
+    const [vtmZoomSystem, setVtmZoomSystem] = useState<ZoomSystem | null>(null);
+    
+    const zoomSystem = useMemo(() => {
+        if (virtualTimelineManager) {
+            // Always get the latest zoom system from VTM
+            return virtualTimelineManager.getZoomSystem();
+        }
+        return createZoomSystem(zoomLevel);
+    }, [virtualTimelineManager, zoomLevel, vtmZoomSystem]);
 
     // Create Virtual Timeline Manager if not provided
     const vtm = useMemo(() => {
@@ -109,7 +119,7 @@ const TimelineArea: React.FC<TimelineAreaProps> = ({ virtualTimelineManager }) =
             const validation = validateTimelineIntegrity(updated.cells, nodes);
             if (!validation.isValid) {
                 console.warn('Timeline integrity issues:', validation.errors);
-                console.log('🔍 Debug: Cells causing issues:', updated.cells.map(cell => ({
+                console.log('🔍 Debug: Cells causing issues:', updated.cells.map((cell: any) => ({
                     id: cell.id,
                     position: cell.position,
                     startTime: cell.startTime,
@@ -121,11 +131,76 @@ const TimelineArea: React.FC<TimelineAreaProps> = ({ virtualTimelineManager }) =
         }
     }, [sceneEditor, nodes, vtm]);
 
-    // Update VTM when zoom level changes
+    // Track if zoom change came from external source (slider) to prevent loops
+    const zoomChangeSourceRef = useRef<'internal' | 'external'>('internal');
+    const isSyncingFromVtmRef = useRef(false);
+
+    // Update VTM when zoom level changes (from TimelineControls only)
     useEffect(() => {
-        // Update VTM with new zoom system when zoom level changes
+        // Skip if this change came from VTM sync (external source)
+        if (zoomChangeSourceRef.current === 'external' || isSyncingFromVtmRef.current) {
+            zoomChangeSourceRef.current = 'internal'; // Reset flag
+            return;
+        }
+
+        // Only update VTM if zoom change came from internal source (TimelineControls)
         vtm.updateZoomSystem(zoomSystem);
     }, [zoomLevel, zoomSystem, vtm]);
+
+    // Sync zoom system from VTM when it changes externally (e.g., from zoom slider)
+    useEffect(() => {
+        if (!virtualTimelineManager) return; // Only sync if VTM is provided externally
+
+        const unsubscribe = vtm.onTimelineChange(() => {
+            // When timeline changes (including zoom changes), get current zoom from VTM
+            const currentZoomSystem = vtm.getZoomSystem();
+            
+            // Check if zoom actually changed to avoid unnecessary updates
+            const currentPixelsPerSecond = currentZoomSystem.pixelsPerSecond;
+            const currentZoomSystemPPS = vtmZoomSystem?.pixelsPerSecond;
+            
+            // Only update if zoom actually changed
+            if (currentZoomSystemPPS !== undefined && Math.abs(currentPixelsPerSecond - currentZoomSystemPPS) < 0.1) {
+                return; // Zoom hasn't changed significantly, skip update
+            }
+            
+            // Mark that we're syncing from VTM to prevent update loop
+            isSyncingFromVtmRef.current = true;
+            
+            // Force update by setting state - this will trigger zoomSystem useMemo to recalculate
+            setVtmZoomSystem(currentZoomSystem);
+            
+            // Also update local zoom level for UI display purposes
+            const overviewPPS = 5;   // Updated from 20 to match ZOOM_SCALES.overview
+            const normalPPS = 60;
+            const detailPPS = 120;
+            
+            let newZoomLevel: ZoomLevel = 'normal';
+            if (currentPixelsPerSecond <= (overviewPPS + normalPPS) / 2) {
+                newZoomLevel = 'overview';
+            } else if (currentPixelsPerSecond >= (normalPPS + detailPPS) / 2) {
+                newZoomLevel = 'detail';
+            } else {
+                newZoomLevel = 'normal';
+            }
+            
+            // Update local zoom level if it changed (mark as external source to prevent loop)
+            if (newZoomLevel !== zoomLevel) {
+                zoomChangeSourceRef.current = 'external';
+                setZoomLevel(newZoomLevel);
+            }
+            
+            // Reset sync flag after a brief delay to allow state updates to complete
+            setTimeout(() => {
+                isSyncingFromVtmRef.current = false;
+            }, 0);
+        });
+
+        // Initialize VTM zoom system state
+        setVtmZoomSystem(vtm.getZoomSystem());
+
+        return () => unsubscribe();
+    }, [vtm, virtualTimelineManager]); // Removed zoomLevel from dependencies to prevent loop
 
     // Escape key handling for rearrange mode
     useEffect(() => {
@@ -227,13 +302,7 @@ const TimelineArea: React.FC<TimelineAreaProps> = ({ virtualTimelineManager }) =
             {/* Phase 2A: New 10/90 Split Layout */}
 
             {/* Left Controls Panel - 10% */}
-            <TimelineControls
-                currentTime={currentTime}
-                totalDuration={totalDuration}
-                zoomLevel={zoomLevel}
-                onZoomChange={setZoomLevel}
-                virtualTimeline={vtm}
-            />
+            <TimelineControls />
 
             {/* Right Timeline Canvas - 90% */}
             <TimelineCanvas

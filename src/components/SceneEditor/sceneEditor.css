@@ -33,17 +33,39 @@
     border-bottom: 1px solid var(--border);
     display: flex;
     align-items: center;
-    justify-content: center;
+    justify-content: space-between;
     padding: 0 2rem;
     position: relative;
+    gap: 1rem;
 }
 
-.video-playback-panel > div:first-child {
+/* Zoom Slider Container - Left aligned */
+.zoom-slider-container {
+    display: flex;
+    align-items: center;
+    width: 120px;
+    flex-shrink: 0;
+}
+
+/* Zoom Slider - Exact match to opacity slider styling */
+.zoom-slider {
+    width: 100%;
+    height: 4px; /* h-1 = 4px */
+    background: #e5e7eb; /* bg-gray-200 */
+    border-radius: 0.5rem; /* rounded-lg */
+    appearance: none;
+    cursor: pointer;
+    outline: none;
+}
+
+/* Playback Controls - Center */
+.video-playback-panel > div:nth-child(2) {
     position: absolute;
     left: 50%;
     transform: translateX(-50%);
 }
 
+/* Time Display - Right aligned */
 .video-playback-panel > div:last-child {
     position: absolute;
     right: 2rem;
