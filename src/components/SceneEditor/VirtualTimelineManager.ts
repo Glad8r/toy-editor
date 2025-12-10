@@ -59,6 +59,9 @@ export interface VirtualTimelineManager {
     // Master Clock Control (NEW)
     startMasterClock(): void;
     stopMasterClock(): void;
+    
+    // Sync time from video element (for timeupdate events during playback)
+    syncTimeFromVideo(clipIndex: number, clipTime: number): void;
 
     // Event system for component synchronization
     onTimelineChange(callback: TimelineChangeCallback): () => void;
@@ -203,6 +206,29 @@ export class VirtualTimelineManagerImpl implements VirtualTimelineManager {
             if (this.playing) {
                 this.startMasterClock(); // This will reset lastFrameTime and restart the loop
             }
+        }
+    }
+
+    /**
+     * Sync time from video element during playback
+     * Converts video's clip-local time to global timeline time and updates master clock
+     * This allows video to drive playback naturally while keeping master clock in sync
+     * 
+     * @param clipIndex - Index of the clip being played
+     * @param clipTime - Time within the clip (after accounting for trimStart)
+     */
+    syncTimeFromVideo(clipIndex: number, clipTime: number): void {
+        // Convert clip time to global timeline time
+        const globalTime = this.clipPositionToGlobalTime(clipIndex, clipTime);
+        
+        // Update master clock's time without restarting it (just sync the reference)
+        if (Math.abs(this.currentTime - globalTime) > 0.01) { // Only update if difference > 10ms
+            this.currentTime = globalTime;
+            this.lastFrameTime = performance.now(); // Reset frame time to prevent drift
+            
+            // Notify subscribers of time change (for playhead updates)
+            this.notifyCurrentTimeChange(globalTime);
+            // Don't notify video player instruction - video is already at correct position
         }
     }
 
@@ -478,7 +504,7 @@ export class VirtualTimelineManagerImpl implements VirtualTimelineManager {
             seekTime: clipPosition?.clipTime || 0
         };
 
-        console.log('📺 VTM notifyVideoPlayerInstruction:', {
+        /*console.log('📺 VTM notifyVideoPlayerInstruction:', {
             currentTime: this.currentTime,
             clipPosition,
             instruction,
@@ -490,7 +516,7 @@ export class VirtualTimelineManagerImpl implements VirtualTimelineManager {
                 duration: c.duration,
                 position: c.position
             }))
-        });
+        });*/
 
         this.videoPlayerCallbacks.forEach(callback => {
             try {
