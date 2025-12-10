@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useCanvas } from '../../contexts/TimelineContext';
 import { NodeType, MediaNode } from '../../types/timeline';
 import { Play, Pause, SkipForward, SkipBack, Minimize2, Camera, Upload } from 'lucide-react';
@@ -14,7 +14,7 @@ interface VideoPreviewAreaProps {
 }
 
 const VideoPreviewArea: React.FC<VideoPreviewAreaProps> = ({ virtualTimeline, onToggleVideoPreview }) => {
-    const { nodes, stateManager, addMediaFromFile, addMediaToTimeline } = useCanvas();
+    const { nodes, stateManager, addMediaFromFile } = useCanvas();
 
     // Simplified state - only what's needed for display
     const [currentInstruction, setCurrentInstruction] = useState<VideoPlayerInstruction | null>(null);
@@ -27,6 +27,12 @@ const VideoPreviewArea: React.FC<VideoPreviewAreaProps> = ({ virtualTimeline, on
     // Single video ref - no complex state management
     const videoRef = useRef<HTMLVideoElement>(null);
     const lastClipIdRef = useRef<string>('');
+    const currentInstructionRef = useRef<VideoPlayerInstruction | null>(null);
+    
+    // Keep ref in sync with state for timeupdate handler
+    useEffect(() => {
+        currentInstructionRef.current = currentInstruction;
+    }, [currentInstruction]);
 
     // Get the scene editor data
     const sceneEditor = stateManager.getSceneEditor();
@@ -65,55 +71,51 @@ const VideoPreviewArea: React.FC<VideoPreviewAreaProps> = ({ virtualTimeline, on
     }, [virtualTimeline]);
 
     // Load media URL when instruction changes
-    useEffect(() => {
-        const loadMediaUrl = async () => {
-            console.log('🎬 VideoPreviewArea: Loading media for instruction:', {
-                hasInstruction: !!currentInstruction,
-                hasClip: !!currentInstruction?.clip,
-                clipId: currentInstruction?.clip?.id,
-                mediaNodeId: currentInstruction?.clip?.mediaNodeId,
-                nodesCount: nodes.length
-            });
+    // FIX: Use useMemo to get the node to avoid including nodes in dependencies
+    const currentMediaNodeForUrl = useMemo(() => {
+        if (!currentInstruction?.clip?.mediaNodeId) return null;
+        const node = nodes.find(node => node.id === currentInstruction.clip.mediaNodeId);
+        return (node && (node.type === NodeType.IMAGE || node.type === NodeType.VIDEO)) 
+            ? node as MediaNode 
+            : null;
+    }, [currentInstruction?.clip?.mediaNodeId, nodes]);
 
-            if (!currentInstruction?.clip) {
-                console.log('🎬 No clip in instruction, clearing media URL');
+    useEffect(() => {
+        let isCancelled = false;
+        
+        const loadMediaUrl = async () => {
+            if (!currentInstruction?.clip || !currentMediaNodeForUrl) {
                 setMediaUrl('');
                 return;
             }
 
-            const node = nodes.find(node => node.id === currentInstruction.clip.mediaNodeId);
-            console.log('🎬 Found node for mediaNodeId:', currentInstruction.clip.mediaNodeId, '→', node?.id, node?.type);
-
-            if (node && (node.type === NodeType.IMAGE || node.type === NodeType.VIDEO)) {
-                const mediaNode = node as MediaNode;
-                if (mediaNode.data.url) {
-                    try {
-                        const url = await mediaService.getMediaUrl(mediaNode.data.url);
-                        console.log('🎬 Loaded media URL:', url.substring(0, 50) + '...');
+            if (currentMediaNodeForUrl.data.url) {
+                try {
+                    const url = await mediaService.getMediaUrl(currentMediaNodeForUrl.data.url);
+                    if (!isCancelled) {
                         setMediaUrl(url);
-                    } catch (error) {
-                        console.error('🎬 Error loading media URL:', error);
+                    }
+                } catch (error) {
+                    console.error('🎬 Error loading media URL:', error);
+                    if (!isCancelled) {
                         setMediaUrl('');
                     }
-                } else {
-                    console.log('🎬 No data.url on media node');
-                    setMediaUrl('');
                 }
             } else {
-                console.log('🎬 Node not found or wrong type, clearing media URL');
-                setMediaUrl('');
+                if (!isCancelled) {
+                    setMediaUrl('');
+                }
             }
         };
 
         loadMediaUrl();
 
+        // FIX: Don't revoke blob URLs in cleanup - they're stored in node data and should persist
+        // Blob URLs should only be revoked when nodes are deleted, not on component re-render
         return () => {
-            // Clean up any blob URLs
-            if (mediaUrl && mediaUrl.startsWith('blob:')) {
-                URL.revokeObjectURL(mediaUrl);
-            }
+            isCancelled = true;
         };
-    }, [currentInstruction?.clip?.id, nodes]);
+    }, [currentInstruction?.clip?.id, currentMediaNodeForUrl?.data.url]); // Only depend on clip ID and media node URL
 
     // Get the current media node
     const getCurrentMediaNode = () => {
@@ -127,7 +129,12 @@ const VideoPreviewArea: React.FC<VideoPreviewAreaProps> = ({ virtualTimeline, on
         return null;
     };
 
-    // Reactive video seeking - seeks video to match VTM time (NEW ARCHITECTURE)
+    /**
+     * OPTION C: Hybrid approach - Reactive video seeking
+     * - During playback: Let video play naturally, sync master clock to video
+     * - During pause: Use master clock, seek video to match
+     * - On clip change: Always seek to new position
+     */
     useEffect(() => {
         if (!currentInstruction?.clip || !videoRef.current) return;
 
@@ -138,23 +145,45 @@ const VideoPreviewArea: React.FC<VideoPreviewAreaProps> = ({ virtualTimeline, on
         const clipId = currentInstruction.clip.id;
         const seekTime = currentInstruction.seekTime + (currentInstruction.clip.trimStart || 0);
 
-        // Handle clip changes
+        // Handle clip changes - always seek on clip change
         if (lastClipIdRef.current !== clipId) {
-            // Don't show loading state - keep previous frame visible for smooth transition
-            // setIsVideoLoading(true); // Commented out to prevent blank screen
+            console.log('🎬 Clip change detected:', { from: lastClipIdRef.current, to: clipId, isPlaying });
+            
+            // Pause current video before changing source
+            if (!video.paused) {
+                video.pause();
+            }
+            
             video.src = mediaUrl;
             lastClipIdRef.current = clipId;
+            setIsVideoLoading(true);
 
             const handleCanPlay = () => {
+                console.log('🎬 Video canplay, seeking to:', seekTime);
                 // Video is ready to play at the seeked position
                 video.currentTime = seekTime;
                 setIsVideoLoading(false);
 
                 // If we should be playing, ensure video starts
+                // Don't wait - play immediately after seek
                 if (isPlaying) {
                     video.play().catch(err => {
                         if (err.name !== 'AbortError') {
                             console.warn('Failed to play video after clip change:', err);
+                        }
+                    });
+                }
+            };
+
+            const handleCanPlayThrough = () => {
+                // Video is fully loaded and ready to play
+                console.log('🎬 Video canplaythrough');
+                setIsVideoLoading(false);
+                // If playing and paused, start playback
+                if (isPlaying && video.paused) {
+                    video.play().catch(err => {
+                        if (err.name !== 'AbortError') {
+                            console.warn('Failed to play video after canplaythrough:', err);
                         }
                     });
                 }
@@ -165,42 +194,171 @@ const VideoPreviewArea: React.FC<VideoPreviewAreaProps> = ({ virtualTimeline, on
                 setIsVideoLoading(false);
             };
 
-            // Use 'canplay' instead of 'loadeddata' for smoother transition
+            // Use both 'canplay' and 'canplaythrough' for better reliability
             video.addEventListener('canplay', handleCanPlay, { once: true });
+            video.addEventListener('canplaythrough', handleCanPlayThrough, { once: true });
             video.addEventListener('error', handleError, { once: true });
 
             return () => {
                 video.removeEventListener('canplay', handleCanPlay);
+                video.removeEventListener('canplaythrough', handleCanPlayThrough);
                 video.removeEventListener('error', handleError);
             };
         } else {
-            // Same clip, just seek to new position
-            if (video.readyState >= 2 && Math.abs(video.currentTime - seekTime) > 0.05) {
-                video.currentTime = seekTime;
+            // Same clip - only seek when paused (not during playback)
+            // During playback, video plays naturally and we sync master clock to it
+            if (!isPlaying && video.readyState >= 2) {
+                // When paused, seek video to match master clock time
+                const timeDifference = Math.abs(video.currentTime - seekTime);
+                if (timeDifference > 0.05) { // Only seek if difference > 50ms
+                    video.currentTime = seekTime;
+                }
             }
+            // When playing, we don't seek - video plays naturally and timeupdate listener syncs master clock
         }
     }, [currentInstruction?.clip?.id, currentInstruction?.seekTime, mediaUrl, isPlaying]);
 
-    // Simple play/pause control - no timing logic (NEW ARCHITECTURE)
+    // Play/pause control - separate from timeupdate listener
     useEffect(() => {
         const currentMediaNode = getCurrentMediaNode();
 
-        if (videoRef.current && currentMediaNode?.type === NodeType.VIDEO) {
-            const video = videoRef.current;
+        if (!videoRef.current || currentMediaNode?.type !== NodeType.VIDEO) return;
+        if (!currentInstruction?.clip || !virtualTimeline) return;
 
-            if (isPlaying && !isVideoLoading && video.readyState >= 2) {
-                video.play().catch(err => {
-                    if (err.name !== 'AbortError') {
-                        console.warn('Failed to play video:', err);
+        const video = videoRef.current;
+
+        // Play/pause control - be more aggressive about playing
+        if (isPlaying) {
+            // Wait for video to be ready, but don't wait too long
+            const attemptPlay = async () => {
+                if (video.readyState >= 1) { // HAVE_METADATA is enough to start
+                    try {
+                        await video.play();
+                        console.log('✅ Video playing successfully, paused:', video.paused);
+                        
+                        // Verify video actually started playing
+                        // Sometimes play() succeeds but video doesn't actually start
+                        if (video.paused) {
+                            console.warn('⚠️ Video play() succeeded but video is still paused, retrying...');
+                            setTimeout(() => {
+                                video.play().catch(e => {
+                                    console.error('❌ Retry play failed:', e);
+                                });
+                            }, 100);
+                        }
+                    } catch (err: any) {
+                        if (err.name !== 'AbortError') {
+                            console.error('❌ Failed to play video:', err);
+                            // Try again after a short delay
+                            setTimeout(() => {
+                                video.play().catch(e => {
+                                    console.error('❌ Retry play also failed:', e);
+                                });
+                            }, 100);
+                        }
                     }
-                });
-            } else {
-                if (!video.paused) {
-                    video.pause();
+                } else {
+                    console.warn('⚠️ Video not ready, readyState:', video.readyState);
                 }
+            };
+
+            // Try immediately if ready
+            if (video.readyState >= 1) {
+                attemptPlay();
+            } else {
+                // Wait for metadata at least
+                const handleLoadedMetadata = () => {
+                    attemptPlay();
+                };
+                video.addEventListener('loadedmetadata', handleLoadedMetadata, { once: true });
+                
+                return () => {
+                    video.removeEventListener('loadedmetadata', handleLoadedMetadata);
+                };
+            }
+        } else {
+            // Pause video when not playing
+            if (!video.paused) {
+                video.pause();
             }
         }
-    }, [isPlaying, isVideoLoading]);
+    }, [isPlaying, currentInstruction?.clip?.id]);
+
+    // Timeupdate listener - always active when video is ready, regardless of isPlaying
+    // This ensures we can sync master clock even during brief pauses
+    useEffect(() => {
+        const currentMediaNode = getCurrentMediaNode();
+
+        if (!videoRef.current || currentMediaNode?.type !== NodeType.VIDEO) return;
+        if (!currentInstruction?.clip || !virtualTimeline) return;
+
+        const video = videoRef.current;
+
+        // Only add timeupdate listener when video is ready and we're on the correct clip
+        if (video.readyState >= 1) {
+            const handleTimeUpdate = () => {
+                // Only sync if video is actually playing (not just isPlaying state)
+                // This ensures we sync even if there's a mismatch between state and reality
+                if (!isPlaying || video.paused) return;
+
+                // Use ref to get latest instruction (avoids stale closure)
+                const instruction = currentInstructionRef.current;
+                if (!instruction?.clip || !virtualTimeline) return;
+
+                // Get current clip position from VTM
+                const currentClip = virtualTimeline.getCurrentClip();
+                if (!currentClip) return;
+
+                // If clip has changed, don't sync - let the clip change handler take over
+                if (currentClip.clip.id !== instruction.clip.id) {
+                    return;
+                }
+
+                // Calculate clip-local time from video's currentTime
+                // video.currentTime is the time in the video file (includes trimStart offset)
+                // clipLocalTime is the time within the effective clip (after trimming)
+                const trimStart = instruction.clip.trimStart || 0;
+                const trimEnd = instruction.clip.trimEnd || 0;
+                const clipDuration = instruction.clip.duration || 0;
+                const effectiveDuration = Math.max(0.1, clipDuration - trimStart - trimEnd);
+                
+                const videoFileTime = video.currentTime;
+                const clipLocalTime = videoFileTime - trimStart;
+
+                // Check if video has reached the end of the effective clip duration
+                // If so, let VTM handle the transition to next clip
+                if (clipLocalTime >= effectiveDuration) {
+                    // Video has reached end of clip - move to next clip
+                    virtualTimeline.setCurrentTime(currentClip.clipEndTime);
+                    return;
+                }
+
+                // Sync master clock to video's time (only if within clip bounds)
+                if (clipLocalTime >= 0 && clipLocalTime < effectiveDuration) {
+                    virtualTimeline.syncTimeFromVideo(
+                        currentClip.clipIndex,
+                        clipLocalTime
+                    );
+                }
+            };
+
+            // Throttle timeupdate to avoid too frequent updates (every ~100ms)
+            let lastUpdateTime = 0;
+            const throttledTimeUpdate = () => {
+                const now = performance.now();
+                if (now - lastUpdateTime > 100) { // Update max 10 times per second
+                    lastUpdateTime = now;
+                    handleTimeUpdate();
+                }
+            };
+
+            video.addEventListener('timeupdate', throttledTimeUpdate);
+
+            return () => {
+                video.removeEventListener('timeupdate', throttledTimeUpdate);
+            };
+        }
+    }, [isPlaying, currentInstruction?.clip?.id, virtualTimeline]);
 
     // Control handlers - only update VTM, no direct timing logic
     const togglePlayback = () => {
@@ -313,21 +471,19 @@ const VideoPreviewArea: React.FC<VideoPreviewAreaProps> = ({ virtualTimeline, on
     // File input ref for upload
     const fileInputRef = useRef<HTMLInputElement>(null);
 
+    /**
+     * Handle file upload - adds media to library but NOT to timeline
+     * Media will appear in SceneEditorInspector as thumbnails that can be dragged to timeline
+     */
     const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const files = e.target.files;
         if (!files) return;
 
+        // Upload files and add to media library (nodes)
+        // Note: We do NOT automatically add to timeline - user must drag from inspector to add
         for (let i = 0; i < files.length; i++) {
             const file = files[i];
             await addMediaFromFile(file);
-            // Auto-add to timeline after upload
-            setTimeout(() => {
-                const nodes = stateManager.getNodes();
-                const lastNode = nodes[nodes.length - 1];
-                if (lastNode) {
-                    addMediaToTimeline(lastNode.id);
-                }
-            }, 100);
         }
 
         if (fileInputRef.current) {

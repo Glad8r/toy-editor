@@ -40,10 +40,14 @@ const SceneEditorCell: React.FC<SceneEditorCellProps> = ({
     useEffect(() => {
         if (!mediaNode || !mediaNode.data.url) return;
 
+        let isCancelled = false;
+
         const loadThumbnail = async () => {
             try {
                 const url = await mediaService.getMediaUrl(mediaNode.data.url);
-                setThumbnailUrl(url);
+                if (!isCancelled) {
+                    setThumbnailUrl(url);
+                }
             } catch (error) {
                 console.error('Error loading thumbnail:', error);
             }
@@ -51,13 +55,12 @@ const SceneEditorCell: React.FC<SceneEditorCellProps> = ({
 
         loadThumbnail();
 
+        // FIX: Don't revoke blob URLs in cleanup - they're stored in node data and should persist
+        // Blob URLs should only be revoked when nodes are deleted, not on component re-render
         return () => {
-            // Clean up any blob URLs
-            if (thumbnailUrl && thumbnailUrl.startsWith('blob:')) {
-                URL.revokeObjectURL(thumbnailUrl);
-            }
+            isCancelled = true;
         };
-    }, [mediaNode]);
+    }, [mediaNode?.id, mediaNode?.data.url]); // Only depend on node ID and URL, not entire node object
 
     // Handle cell deletion
     const handleDelete = (e: React.MouseEvent) => {
