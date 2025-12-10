@@ -166,11 +166,13 @@ const TimelineClip: React.FC<TimelineClipProps> = ({
                     const trimEnd = cell.trimEnd || 0;
 
                     // Check if keyframes are cached
+                    // Pass pixelsPerSecond to enable continuous zoom filtering
                     const cachedKeyframes = keyframeCacheService.getCachedKeyframes(
                         videoUrl,
                         zoomSystem.level,
                         trimStart,
-                        trimEnd
+                        trimEnd,
+                        zoomSystem.pixelsPerSecond
                     );
 
                     if (cachedKeyframes) {

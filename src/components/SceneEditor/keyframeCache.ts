@@ -2,7 +2,7 @@
 // Pre-extracts and caches video keyframes to eliminate timeline delays
 
 import { extractVideoFrames, generateKeyframeTimestamps, getVideoMetadata } from './videoFrameExtractor';
-import { ZoomLevel, ZOOM_SCALES } from './zoomSystem';
+import { ZoomLevel, ZOOM_SCALES, createZoomSystemFromPixelsPerSecond } from './zoomSystem';
 
 interface CachedKeyframes {
     [zoomLevel: string]: {
@@ -89,13 +89,17 @@ class KeyframeCacheService {
                 };
             }
 
-            // Extract keyframes for all zoom levels
+            // Extract keyframes for all zoom levels using continuous zoom formula
+            // We extract max keyframes (10) for each level to support continuous zoom filtering
             const zoomLevels: ZoomLevel[] = ['overview', 'normal', 'detail'];
 
             for (const zoomLevel of zoomLevels) {
                 // Always extract keyframes for the full original video
                 // Trim will be handled visually by hiding portions of these keyframes
-                const keyframeCount = this.getKeyframeCount(videoDuration, zoomLevel);
+                // Use the continuous zoom formula with the level's pixelsPerSecond
+                const pixelsPerSecond = ZOOM_SCALES[zoomLevel];
+                const zoomSystem = createZoomSystemFromPixelsPerSecond(pixelsPerSecond);
+                const keyframeCount = zoomSystem.getKeyframeCount(videoDuration);
 
                 // Generate timestamps for the full video duration
                 const timestamps = generateKeyframeTimestamps(
@@ -167,17 +171,54 @@ class KeyframeCacheService {
 
     /**
      * Get cached keyframes for a specific video and zoom level
+     * Filters cached keyframes based on continuous zoom pixelsPerSecond
      */
     getCachedKeyframes(
         videoUrl: string,
         zoomLevel: ZoomLevel,
         trimStart: number = 0,
-        trimEnd: number = 0
+        trimEnd: number = 0,
+        pixelsPerSecond?: number
     ): { timestamps: number[]; frameUrls: string[] } | null {
         const cacheKey = this.getCacheKey(videoUrl, trimStart, trimEnd);
         const cached = this.cache[cacheKey]?.keyframes[zoomLevel];
 
         if (cached) {
+            // If pixelsPerSecond is provided, filter keyframes using continuous zoom formula
+            if (pixelsPerSecond !== undefined) {
+                const zoomSystem = createZoomSystemFromPixelsPerSecond(pixelsPerSecond);
+                // Calculate how many keyframes we need based on video duration
+                // Use the original video duration from cache metadata
+                const videoDuration = this.cache[cacheKey]?.metadata?.duration || 0;
+                const neededCount = zoomSystem.getKeyframeCount(videoDuration);
+                
+                // Return only the needed number of keyframes, evenly distributed
+                if (neededCount >= cached.timestamps.length) {
+                    // Need all or more - return all cached
+                    return {
+                        timestamps: cached.timestamps,
+                        frameUrls: cached.frameUrls
+                    };
+                } else {
+                    // Need fewer - evenly sample from cached keyframes
+                    const step = cached.timestamps.length / neededCount;
+                    const filteredTimestamps: number[] = [];
+                    const filteredFrameUrls: string[] = [];
+                    
+                    for (let i = 0; i < neededCount; i++) {
+                        const index = Math.floor(i * step);
+                        filteredTimestamps.push(cached.timestamps[index]);
+                        filteredFrameUrls.push(cached.frameUrls[index]);
+                    }
+                    
+                    return {
+                        timestamps: filteredTimestamps,
+                        frameUrls: filteredFrameUrls
+                    };
+                }
+            }
+            
+            // No pixelsPerSecond provided - return all cached keyframes (backward compatibility)
             return {
                 timestamps: cached.timestamps,
                 frameUrls: cached.frameUrls
@@ -320,18 +361,7 @@ class KeyframeCacheService {
         return videoUrl;
     }
 
-    private getKeyframeCount(duration: number, zoomLevel: ZoomLevel): number {
-        switch (zoomLevel) {
-            case 'overview':
-                return 1;
-            case 'normal':
-                return Math.min(5, Math.max(1, Math.floor(duration)));
-            case 'detail':
-                return Math.min(10, Math.max(1, Math.floor(duration * 2)));
-            default:
-                return 1;
-        }
-    }
+    // Removed discrete getKeyframeCount - now using continuous zoom formula via createZoomSystemFromPixelsPerSecond
 }
 
 // Singleton instance

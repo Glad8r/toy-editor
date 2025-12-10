@@ -57,16 +57,12 @@ export const createZoomSystem = (level: ZoomLevel): ZoomSystem => {
         },
 
         getKeyframeCount: (clipDuration: number): number => {
-            switch (level) {
-                case 'overview':
-                    return 1; // Just 1 thumbnail for overview
-                case 'normal':
-                    return Math.min(5, Math.max(1, Math.floor(clipDuration))); // 1-5 keyframes
-                case 'detail':
-                    return Math.min(10, Math.max(1, Math.floor(clipDuration * 2))); // Up to 10 keyframes
-                default:
-                    return 1;
-            }
+            // Use continuous zoom formula based on pixelsPerSecond
+            // This matches the continuous zoom system behavior
+            const baseCount = level === 'overview' ? 1 : level === 'normal' ? 3 : 5;
+            const scale = pixelsPerSecond / ZOOM_SCALES[level];
+            // Scale keyframe count based on clip duration and zoom level
+            return Math.min(20, Math.max(1, Math.floor(baseCount * scale * Math.max(1, clipDuration / 3))));
         },
 
         getTimelineWidth: (totalDuration: number): number => {
@@ -111,7 +107,7 @@ export const createZoomSystemFromPixelsPerSecond = (pixelsPerSecond: number): Zo
             const baseCount = level === 'overview' ? 1 : level === 'normal' ? 3 : 5;
             const scale = pixelsPerSecond / ZOOM_SCALES[level];
             // Scale keyframe count based on clip duration and zoom level
-            return Math.min(10, Math.max(1, Math.floor(baseCount * scale * Math.max(1, clipDuration / 3))));
+            return Math.min(20, Math.max(1, Math.floor(baseCount * scale * Math.max(1, clipDuration / 3))));
         },
 
         getTimelineWidth: (totalDuration: number): number => {
