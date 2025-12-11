@@ -5,7 +5,7 @@ export { default as TimelineControls } from './TimelineControls';
 export { default as TimelineCanvas } from './TimelineCanvas';
 export { default as TimelineRuler } from './TimelineRuler';
 export { default as TimelineClip } from './TimelineClip';
-export { default as ZoomControls } from './ZoomControls';
+// ZoomControls removed - using continuous zoom via slider in VideoPlaybackPanel
 export { default as SceneEditorCell } from './SceneEditorCell';
 export { default as SceneEditorInspector } from './SceneEditorInspector';
 export { default as SceneEditorInspectorHeader } from './SceneEditorInspectorHeader';

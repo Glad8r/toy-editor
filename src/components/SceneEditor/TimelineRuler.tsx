@@ -1,26 +1,26 @@
 import React, { useCallback } from 'react';
 import { formatTime } from './timelineUtils';
-import { ZoomLevel, timeToPixel, getTimeInterval } from './zoomSystem';
+import { ZoomSystem, getTimeInterval } from './zoomSystem';
 import { VirtualTimelineManager } from './VirtualTimelineManager';
 import { TimelineMode } from './TimelineModeContext';
 
 interface TimelineRulerProps {
     totalDuration: number;
-    zoomLevel: ZoomLevel;
+    zoomSystem: ZoomSystem;
     virtualTimeline?: VirtualTimelineManager;
     timelineMode?: TimelineMode;
 }
 
 const TimelineRuler: React.FC<TimelineRulerProps> = ({
     totalDuration,
-    zoomLevel,
+    zoomSystem,
     virtualTimeline,
     timelineMode = 'trim'
 }) => {
 
-    // Generate time markers using universal zoom system
+    // Generate time markers using zoom system
     const generateTimeMarkers = () => {
-        const interval = getTimeInterval(zoomLevel, totalDuration);
+        const interval = getTimeInterval(zoomSystem.pixelsPerSecond, totalDuration);
         const markers = [];
 
         // Always start with 00:00
@@ -40,7 +40,7 @@ const TimelineRuler: React.FC<TimelineRulerProps> = ({
     };
 
     const timeMarkers = generateTimeMarkers();
-    const rulerWidth = Math.max(timeToPixel(totalDuration, zoomLevel), 300); // Minimum 300px width
+    const rulerWidth = Math.max(zoomSystem.getTimelineWidth(totalDuration), 300); // Minimum 300px width
 
     // Handle click-to-seek functionality
     const handleRulerClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
@@ -67,7 +67,7 @@ const TimelineRuler: React.FC<TimelineRulerProps> = ({
         >
             <div className="ruler-track">
                 {timeMarkers.map((time, index) => {
-                    const leftPosition = timeToPixel(time, zoomLevel);
+                    const leftPosition = zoomSystem.getPixelFromTime(time);
 
                     return (
                         <div

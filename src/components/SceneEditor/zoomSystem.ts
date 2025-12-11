@@ -1,10 +1,7 @@
-// Universal Zoom System for Scene Editor Timeline
-// Provides pixel-perfect alignment between timeline ruler and clips
-
-export type ZoomLevel = 'overview' | 'normal' | 'detail';
+// Continuous Zoom System for Scene Editor Timeline
+// Uses pixelsPerSecond as the single zoom value (no discrete levels)
 
 export interface ZoomSystem {
-    level: ZoomLevel;
     pixelsPerSecond: number;
     getPixelFromTime: (seconds: number) => number;
     getTimeFromPixel: (pixel: number) => number;
@@ -12,153 +9,82 @@ export interface ZoomSystem {
     getTimelineWidth: (totalDuration: number) => number;
 }
 
-// Core zoom scales optimized for short films (<30 minutes)
-export const ZOOM_SCALES: Record<ZoomLevel, number> = {
-    overview: 5,   // 30min film = 9,000px (see whole project) - decreased from 20
-    normal: 60,    // 5min scene = 18,000px (comfortable editing)
-    detail: 120    // 2min scene = 14,400px (precise timing)
-};
-
-// Zoom level metadata for UI
-export const ZOOM_METADATA: Record<ZoomLevel, { label: string; description: string; icon: string }> = {
-    overview: {
-        label: 'Overview',
-        description: 'See whole project structure',
-        icon: '⤢'
-    },
-    normal: {
-        label: 'Normal',
-        description: 'Comfortable editing level',
-        icon: '◐'
-    },
-    detail: {
-        label: 'Detail',
-        description: 'Precise timing work',
-        icon: '⤡'
-    }
-};
+// Min/max zoom bounds
+export const MIN_PIXELS_PER_SECOND = 5;    // Overview: 30min = 9,000px
+export const MAX_PIXELS_PER_SECOND = 120;  // Detail: precise timing
+export const DEFAULT_PIXELS_PER_SECOND = 60; // Normal: comfortable editing
 
 /**
- * Create a zoom system instance for a specific zoom level
+ * Create a zoom system with the given pixels per second value
  */
-export const createZoomSystem = (level: ZoomLevel): ZoomSystem => {
-    const pixelsPerSecond = ZOOM_SCALES[level];
+export const createZoomSystem = (pixelsPerSecond: number = DEFAULT_PIXELS_PER_SECOND): ZoomSystem => {
+    // Clamp to valid range
+    const pps = Math.max(MIN_PIXELS_PER_SECOND, Math.min(MAX_PIXELS_PER_SECOND, pixelsPerSecond));
 
     return {
-        level,
-        pixelsPerSecond,
+        pixelsPerSecond: pps,
 
         getPixelFromTime: (seconds: number): number => {
-            return seconds * pixelsPerSecond;
+            return seconds * pps;
         },
 
         getTimeFromPixel: (pixel: number): number => {
-            return pixel / pixelsPerSecond;
+            return pixel / pps;
         },
 
         getKeyframeCount: (clipDuration: number): number => {
-            // Use continuous zoom formula based on pixelsPerSecond
-            // This matches the continuous zoom system behavior
-            const baseCount = level === 'overview' ? 1 : level === 'normal' ? 3 : 5;
-            const scale = pixelsPerSecond / ZOOM_SCALES[level];
-            // Scale keyframe count based on clip duration and zoom level
-            return Math.min(20, Math.max(1, Math.floor(baseCount * scale * Math.max(1, clipDuration / 3))));
+            // Scale keyframes based on zoom level and clip duration
+            // More zoomed in = more keyframes
+            const zoomFactor = pps / DEFAULT_PIXELS_PER_SECOND;
+            const durationFactor = Math.max(1, clipDuration / 3);
+            const baseCount = pps < 30 ? 1 : pps < 90 ? 3 : 5;
+            return Math.min(20, Math.max(1, Math.floor(baseCount * zoomFactor * durationFactor)));
         },
 
         getTimelineWidth: (totalDuration: number): number => {
-            return totalDuration * pixelsPerSecond;
-        }
-    };
-};
-
-/**
- * Create a zoom system with custom pixels per second (for continuous zoom)
- * Maps pixelsPerSecond to the closest zoom level for metadata purposes
- */
-export const createZoomSystemFromPixelsPerSecond = (pixelsPerSecond: number): ZoomSystem => {
-    // Determine closest zoom level for metadata
-    let level: ZoomLevel = 'normal';
-    const overviewPPS = ZOOM_SCALES.overview;
-    const normalPPS = ZOOM_SCALES.normal;
-    const detailPPS = ZOOM_SCALES.detail;
-
-    if (pixelsPerSecond <= (overviewPPS + normalPPS) / 2) {
-        level = 'overview';
-    } else if (pixelsPerSecond >= (normalPPS + detailPPS) / 2) {
-        level = 'detail';
-    } else {
-        level = 'normal';
-    }
-
-    return {
-        level,
-        pixelsPerSecond,
-
-        getPixelFromTime: (seconds: number): number => {
-            return seconds * pixelsPerSecond;
-        },
-
-        getTimeFromPixel: (pixel: number): number => {
-            return pixel / pixelsPerSecond;
-        },
-
-        getKeyframeCount: (clipDuration: number): number => {
-            // Use level-based logic but scale based on actual pixelsPerSecond
-            const baseCount = level === 'overview' ? 1 : level === 'normal' ? 3 : 5;
-            const scale = pixelsPerSecond / ZOOM_SCALES[level];
-            // Scale keyframe count based on clip duration and zoom level
-            return Math.min(20, Math.max(1, Math.floor(baseCount * scale * Math.max(1, clipDuration / 3))));
-        },
-
-        getTimelineWidth: (totalDuration: number): number => {
-            return totalDuration * pixelsPerSecond;
+            return totalDuration * pps;
         }
     };
 };
 
 /**
  * Universal time-to-pixel conversion function
- * Used by both TimelineRuler and TimelineClip for perfect alignment
  */
-export const timeToPixel = (seconds: number, zoomLevel: ZoomLevel): number => {
-    return seconds * ZOOM_SCALES[zoomLevel];
+export const timeToPixel = (seconds: number, pixelsPerSecond: number): number => {
+    return seconds * pixelsPerSecond;
 };
 
 /**
  * Universal pixel-to-time conversion function
  */
-export const pixelToTime = (pixel: number, zoomLevel: ZoomLevel): number => {
-    return pixel / ZOOM_SCALES[zoomLevel];
+export const pixelToTime = (pixel: number, pixelsPerSecond: number): number => {
+    return pixel / pixelsPerSecond;
 };
 
 /**
- * Get appropriate time interval for ruler markers based on zoom level
+ * Get appropriate time interval for ruler markers based on zoom and duration
  */
-export const getTimeInterval = (zoomLevel: ZoomLevel, totalDuration: number): number => {
-    switch (zoomLevel) {
-        case 'overview':
-            // For overview, show major intervals
-            if (totalDuration <= 60) return 10;      // 10s for short clips
-            if (totalDuration <= 300) return 30;     // 30s for 5min clips  
-            if (totalDuration <= 1800) return 60;    // 1m for 30min clips
-            return 300;                              // 5m for longer clips
-
-        case 'normal':
-            // For normal, show medium intervals
-            if (totalDuration <= 30) return 5;       // 5s for very short
-            if (totalDuration <= 120) return 10;     // 10s for 2min clips
-            if (totalDuration <= 600) return 30;     // 30s for 10min clips
-            return 60;                               // 1m for longer clips
-
-        case 'detail':
-            // For detail, show fine intervals
-            if (totalDuration <= 10) return 1;       // 1s for very short
-            if (totalDuration <= 60) return 5;       // 5s for 1min clips
-            if (totalDuration <= 300) return 10;     // 10s for 5min clips
-            return 30;                               // 30s for longer clips
-
-        default:
-            return 5;
+export const getTimeInterval = (pixelsPerSecond: number, totalDuration: number): number => {
+    // Calculate based on how many pixels per second we have
+    // Higher zoom = smaller intervals
+    if (pixelsPerSecond < 20) {
+        // Overview range
+        if (totalDuration <= 60) return 10;
+        if (totalDuration <= 300) return 30;
+        if (totalDuration <= 1800) return 60;
+        return 300;
+    } else if (pixelsPerSecond < 90) {
+        // Normal range
+        if (totalDuration <= 30) return 5;
+        if (totalDuration <= 120) return 10;
+        if (totalDuration <= 600) return 30;
+        return 60;
+    } else {
+        // Detail range
+        if (totalDuration <= 10) return 1;
+        if (totalDuration <= 60) return 5;
+        if (totalDuration <= 300) return 10;
+        return 30;
     }
 };
 
@@ -167,9 +93,9 @@ export const getTimeInterval = (zoomLevel: ZoomLevel, totalDuration: number): nu
  */
 export const getScrollPositionForTime = (
     targetTime: number,
-    zoomLevel: ZoomLevel,
+    pixelsPerSecond: number,
     viewportWidth: number
 ): number => {
-    const targetPixel = timeToPixel(targetTime, zoomLevel);
+    const targetPixel = timeToPixel(targetTime, pixelsPerSecond);
     return Math.max(0, targetPixel - viewportWidth / 2);
-}; 
+};

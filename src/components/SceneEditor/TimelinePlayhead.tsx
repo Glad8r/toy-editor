@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { VirtualTimelineManager } from './VirtualTimelineManager';
-import { ZoomLevel } from './zoomSystem';
+import { ZoomSystem } from './zoomSystem';
 
 interface TimelinePlayheadProps {
     virtualTimeline: VirtualTimelineManager;
-    zoomLevel: ZoomLevel;
+    zoomSystem: ZoomSystem;
     totalDuration: number;
     timelineWidth: number;
     containerHeight?: number | string; // Made optional with default
@@ -12,7 +12,7 @@ interface TimelinePlayheadProps {
 
 const TimelinePlayhead: React.FC<TimelinePlayheadProps> = ({
     virtualTimeline,
-    zoomLevel,
+    zoomSystem,
     totalDuration,
     timelineWidth,
     containerHeight = '100%' // Default to full timeline canvas height
@@ -25,8 +25,8 @@ const TimelinePlayhead: React.FC<TimelinePlayheadProps> = ({
     const playheadRef = useRef<HTMLDivElement>(null);
     const containerRef = useRef<HTMLDivElement>(null);
 
-    // Track zoom level changes to handle playhead repositioning
-    const prevZoomLevelRef = useRef(zoomLevel);
+    // Track zoom changes to handle playhead repositioning
+    const prevZoomPPSRef = useRef(zoomSystem.pixelsPerSecond);
 
     // Subscribe to VTM current time changes
     useEffect(() => {
@@ -50,15 +50,15 @@ const TimelinePlayhead: React.FC<TimelinePlayheadProps> = ({
         };
     }, [virtualTimeline]);
 
-    // Handle zoom level changes - force immediate playhead repositioning
+    // Handle zoom changes - force immediate playhead repositioning
     useEffect(() => {
-        if (prevZoomLevelRef.current !== zoomLevel) {
-            prevZoomLevelRef.current = zoomLevel;
+        if (prevZoomPPSRef.current !== zoomSystem.pixelsPerSecond) {
+            prevZoomPPSRef.current = zoomSystem.pixelsPerSecond;
 
             // Force a re-render to ensure playhead position updates immediately when zoom changes
             setForceRender(prev => prev + 1);
         }
-    }, [zoomLevel]);
+    }, [zoomSystem.pixelsPerSecond]);
 
     // Calculate playhead position using VTM's pixel conversion
     // Include forceRender in the calculation to ensure re-calculation on zoom changes

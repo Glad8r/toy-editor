@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { Play, Pause, SkipForward, SkipBack } from 'lucide-react';
 import { Button } from '../ui/button';
 import { VirtualTimelineManager } from './VirtualTimelineManager';
-import { createZoomSystemFromPixelsPerSecond, ZOOM_SCALES } from './zoomSystem';
+import { createZoomSystem, MIN_PIXELS_PER_SECOND, MAX_PIXELS_PER_SECOND } from './zoomSystem';
 
 interface VideoPlaybackPanelProps {
     virtualTimeline: VirtualTimelineManager;
@@ -25,9 +25,7 @@ const VideoPlaybackPanel: React.FC<VideoPlaybackPanelProps> = ({
     
     // Convert pixels per second to slider value (0-100) - defined early for initialization
     const pixelsPerSecondToSliderValue = useCallback((pps: number): number => {
-        const minPPS = ZOOM_SCALES.overview; // 5
-        const maxPPS = ZOOM_SCALES.detail;   // 120
-        return ((pps - minPPS) / (maxPPS - minPPS)) * 100;
+        return ((pps - MIN_PIXELS_PER_SECOND) / (MAX_PIXELS_PER_SECOND - MIN_PIXELS_PER_SECOND)) * 100;
     }, []);
 
     // Zoom slider state - maps 0-100 to overview (5px/s) to detail (120px/s)
@@ -72,10 +70,8 @@ const VideoPlaybackPanel: React.FC<VideoPlaybackPanelProps> = ({
 
     // Convert slider value (0-100) to pixels per second (5-120)
     const sliderValueToPixelsPerSecond = useCallback((value: number): number => {
-        // Map 0 -> 5 (overview), 50 -> 60 (normal), 100 -> 120 (detail)
-        const minPPS = ZOOM_SCALES.overview; // 5
-        const maxPPS = ZOOM_SCALES.detail;   // 120
-        return minPPS + (value / 100) * (maxPPS - minPPS);
+        // Map 0 -> 5 (min), 100 -> 120 (max)
+        return MIN_PIXELS_PER_SECOND + (value / 100) * (MAX_PIXELS_PER_SECOND - MIN_PIXELS_PER_SECOND);
     }, []);
 
     // Handle zoom slider change
@@ -86,8 +82,8 @@ const VideoPlaybackPanel: React.FC<VideoPlaybackPanelProps> = ({
         // Convert slider value to pixels per second
         const pixelsPerSecond = sliderValueToPixelsPerSecond(value);
         
-        // Create zoom system with custom pixels per second
-        const newZoomSystem = createZoomSystemFromPixelsPerSecond(pixelsPerSecond);
+        // Create zoom system with the new pixels per second
+        const newZoomSystem = createZoomSystem(pixelsPerSecond);
         
         // Update VTM with new zoom system
         virtualTimeline.updateZoomSystem(newZoomSystem);
