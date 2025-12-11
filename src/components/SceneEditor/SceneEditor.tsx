@@ -8,6 +8,7 @@ import { createVirtualTimelineManager } from './VirtualTimelineManager';
 import { createZoomSystem } from './zoomSystem';
 import { updateTimelineState } from './timelineUtils';
 import { TimelineModeProvider } from './TimelineModeContext';
+import { SceneEditorCell } from '../../types/timeline';
 import './sceneEditor.css';
 
 const SceneEditor: React.FC = () => {
@@ -25,18 +26,42 @@ const SceneEditor: React.FC = () => {
     // Store current zoom system to preserve it across VTM recreations
     const currentZoomSystemRef = useRef<ReturnType<typeof createZoomSystem> | null>(null);
     
-    // Create shared VirtualTimelineManager instance for synchronization
-    const virtualTimelineManager = useMemo(() => {
-        if (!migratedSceneEditor?.cells) return null;
-
-        // Use preserved zoom system if available, otherwise default to normal
-        const zoomSystem = currentZoomSystemRef.current || createZoomSystem('normal');
-        const vtm = createVirtualTimelineManager(zoomSystem, migratedSceneEditor.cells);
+    // Create shared VirtualTimelineManager instance - ONCE, not on every cell change
+    // Use ref to persist VTM and only update it when cells change
+    const vtmRef = useRef<ReturnType<typeof createVirtualTimelineManager> | null>(null);
+    
+    // Create VTM synchronously on first render (always, even with empty cells)
+    if (!vtmRef.current) {
+        const cells = migratedSceneEditor?.cells || [];
+        const zoomSystem = currentZoomSystemRef.current || createZoomSystem(); // Uses DEFAULT_PIXELS_PER_SECOND (60)
+        vtmRef.current = createVirtualTimelineManager(zoomSystem, cells);
+        currentZoomSystemRef.current = vtmRef.current.getZoomSystem();
+    }
+    
+    // VTM is always available now
+    const virtualTimelineManager = vtmRef.current;
+    
+    // Track last cell count to prevent unnecessary VTM updates
+    const lastCellCountRef = useRef<number>(-1);
+    const lastCellIdsRef = useRef<string>('');
+    
+    // Update VTM when cells actually change (not just array reference)
+    useEffect(() => {
+        const cells = migratedSceneEditor?.cells || [];
+        const cellCount = cells.length;
+        const cellIds = cells.map((c: SceneEditorCell) => c.id).join(',');
         
-        // Store the zoom system for future recreations
-        currentZoomSystemRef.current = vtm.getZoomSystem();
+        // CRITICAL FIX: Only update VTM if cell count or IDs actually changed
+        if (cellCount === lastCellCountRef.current && cellIds === lastCellIdsRef.current) {
+            return;
+        }
         
-        return vtm;
+        lastCellCountRef.current = cellCount;
+        lastCellIdsRef.current = cellIds;
+        
+        if (vtmRef.current && cells.length > 0) {
+            vtmRef.current.updateTimeline(cells);
+        }
     }, [migratedSceneEditor?.cells]);
     
     // Preserve zoom system when VTM updates it externally (e.g., from zoom slider)

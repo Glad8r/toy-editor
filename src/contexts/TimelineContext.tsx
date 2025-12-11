@@ -6,6 +6,7 @@ class SimpleStateManager {
   private canvas: Canvas;
   private listeners: Set<() => void> = new Set();
   private reactSetCanvas?: React.Dispatch<React.SetStateAction<Canvas>>;
+  private isUpdating = false; // Guard against re-entry
 
   constructor(initialCanvas: Canvas) {
     this.canvas = initialCanvas;
@@ -20,7 +21,19 @@ class SimpleStateManager {
     return this.canvas;
   }
 
+  // Sync internal state from React state (called after setCanvas with updater function)
+  syncFromReact(newCanvas: Canvas): void {
+    this.canvas = newCanvas;
+  }
+
   updateCanvas(newCanvas: Canvas): void {
+    // Guard against re-entry to prevent infinite loops
+    if (this.isUpdating) {
+      return;
+    }
+    
+    this.isUpdating = true;
+    
     this.canvas = newCanvas;
 
     // CRITICAL FIX: Trigger React re-render by calling setCanvas
@@ -29,6 +42,11 @@ class SimpleStateManager {
     }
 
     this.notifyListeners();
+    
+    // Reset guard after a microtask to allow React to process the update
+    queueMicrotask(() => {
+      this.isUpdating = false;
+    });
   }
 
   getSceneEditor() {
@@ -103,13 +121,16 @@ export const TimelineProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     stateManagerRef.current.setReactSetCanvas(setCanvas);
   }, []);
 
-  // Update state manager when canvas changes (but avoid infinite loops)
-  React.useEffect(() => {
-    // Only update if the canvas reference actually changed
-    if (stateManagerRef.current.getCanvas() !== canvas) {
-      stateManagerRef.current.updateCanvas(canvas);
-    }
-  }, [canvas]);
+  // Wrapper for setCanvas that also syncs state manager
+  // Use this instead of setCanvas directly to keep state manager in sync
+  const updateCanvasState = useCallback((updater: Canvas | ((prev: Canvas) => Canvas)) => {
+    setCanvas(prev => {
+      const newCanvas = typeof updater === 'function' ? updater(prev) : updater;
+      // Sync state manager's internal state (don't call updateCanvas to avoid loop)
+      stateManagerRef.current.syncFromReact(newCanvas);
+      return newCanvas;
+    });
+  }, []);
 
   // Always visible in standalone mode
   const [isSceneEditorVisible] = useState(true);
@@ -171,17 +192,17 @@ export const TimelineProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       }
     };
 
-    setCanvas(prev => ({
+    updateCanvasState(prev => ({
       ...prev,
       nodes: [...prev.nodes, newNode]
     }));
 
     return nodeId;
-  }, []);
+  }, [updateCanvasState]);
 
   // Add media node to timeline
   const addMediaToTimeline = useCallback((mediaNodeId: string) => {
-    setCanvas(prev => {
+    updateCanvasState(prev => {
       const node = prev.nodes.find(n => n.id === mediaNodeId);
       if (!node) return prev;
 
@@ -219,11 +240,11 @@ export const TimelineProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         }
       };
     });
-  }, []);
+  }, [updateCanvasState]);
 
   // Remove clip from timeline
   const removeClip = useCallback((clipId: string) => {
-    setCanvas(prev => {
+    updateCanvasState(prev => {
       const cells = prev.sceneEditor?.cells || [];
       const updatedCells = cells.filter(c => c.id !== clipId);
 
@@ -248,11 +269,11 @@ export const TimelineProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         }
       };
     });
-  }, []);
+  }, [updateCanvasState]);
 
   // Update clip properties
   const updateClip = useCallback((clipId: string, updates: Partial<SceneEditorCell>) => {
-    setCanvas(prev => {
+    updateCanvasState(prev => {
       const cells = prev.sceneEditor?.cells || [];
       const updatedCells = cells.map(cell =>
         cell.id === clipId ? { ...cell, ...updates } : cell
@@ -266,11 +287,11 @@ export const TimelineProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         }
       };
     });
-  }, []);
+  }, [updateCanvasState]);
 
   // Move clip to new position
   const moveClip = useCallback((clipId: string, newStartTime: number) => {
-    setCanvas(prev => {
+    updateCanvasState(prev => {
       const cells = prev.sceneEditor?.cells || [];
       const updatedCells = cells.map(cell =>
         cell.id === clipId ? { ...cell, startTime: newStartTime } : cell
@@ -292,7 +313,7 @@ export const TimelineProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         }
       };
     });
-  }, []);
+  }, [updateCanvasState]);
 
   const value: TimelineContextType = {
     canvas,

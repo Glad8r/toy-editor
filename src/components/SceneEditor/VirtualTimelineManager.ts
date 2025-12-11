@@ -267,7 +267,7 @@ export class VirtualTimelineManagerImpl implements VirtualTimelineManager {
     }
 
     updateZoomSystem(newZoomSystem: ZoomSystem): void {
-        //console.log('🔍 VTM: Updating zoom system to', newZoomSystem.level, 'at', newZoomSystem.pixelsPerSecond, 'px/s');
+        //console.log('🔍 VTM: Updating zoom system to', newZoomSystem.pixelsPerSecond, 'px/s');
         this.zoomSystem = newZoomSystem;
 
         // Notify subscribers that the timeline may have changed dimensions

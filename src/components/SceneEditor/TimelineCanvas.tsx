@@ -1,11 +1,11 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useCanvas } from '../../contexts/TimelineContext';
 import { SceneEditorCell as SceneEditorCellType } from '../../types/timeline';
 import { NodeType } from '../../types/timeline';
 import TimelineRuler from './TimelineRuler';
 import TimelineClip from './TimelineClip';
 import TimelinePlayhead from './TimelinePlayhead';
-import { ZoomLevel, createZoomSystem, ZoomSystem } from './zoomSystem';
+import { createZoomSystem, ZoomSystem } from './zoomSystem';
 import { VirtualTimelineManager } from './VirtualTimelineManager';
 import { MoveTimelineClipOperation, MoveSceneEditorCellOperation, AddSceneEditorCellOperation } from '../../operations/SceneEditorOperations';
 import { TimelineMode, useTimelineMode } from './TimelineModeContext';
@@ -14,7 +14,6 @@ import RearrangeIndicators from './RearrangeIndicators';
 
 interface TimelineCanvasProps {
     totalDuration: number;
-    zoomLevel: ZoomLevel;
     migratedCells?: SceneEditorCellType[];
     virtualTimeline?: VirtualTimelineManager;
     timelineMode: TimelineMode;
@@ -42,7 +41,6 @@ interface TimelineCanvasProps {
 
 const TimelineCanvas: React.FC<TimelineCanvasProps> = ({
     totalDuration,
-    zoomLevel,
     migratedCells,
     virtualTimeline,
     timelineMode,
@@ -61,31 +59,41 @@ const TimelineCanvas: React.FC<TimelineCanvasProps> = ({
 
     // Track VTM zoom system changes to force re-renders
     const [vtmZoomSystem, setVtmZoomSystem] = useState<ZoomSystem | null>(null);
+    // Use ref to track last known zoom to prevent unnecessary state updates
+    const lastKnownZoomPPSRef = useRef<number | null>(null);
 
     // Subscribe to VTM timeline changes to detect zoom system updates
     useEffect(() => {
         if (!virtualTimeline) {
             setVtmZoomSystem(null);
+            lastKnownZoomPPSRef.current = null;
             return;
         }
 
+        // Initialize
+        const initialZoomSystem = virtualTimeline.getZoomSystem();
+        setVtmZoomSystem(initialZoomSystem);
+        lastKnownZoomPPSRef.current = initialZoomSystem.pixelsPerSecond;
+
         const unsubscribe = virtualTimeline.onTimelineChange(() => {
-            // When timeline changes (including zoom changes), update zoom system
+            // CRITICAL FIX: Only update state if zoom actually changed
             const currentZoomSystem = virtualTimeline.getZoomSystem();
+            const currentPPS = currentZoomSystem.pixelsPerSecond;
+            
+            if (lastKnownZoomPPSRef.current !== null && 
+                Math.abs(currentPPS - lastKnownZoomPPSRef.current) < 0.1) {
+                return; // Zoom hasn't changed, skip state update
+            }
+            
+            lastKnownZoomPPSRef.current = currentPPS;
             setVtmZoomSystem(currentZoomSystem);
         });
-
-        // Initialize
-        setVtmZoomSystem(virtualTimeline.getZoomSystem());
 
         return () => unsubscribe();
     }, [virtualTimeline]);
 
-    // Get zoom system from VTM if available, otherwise create from zoomLevel prop
-    // This ensures we use the actual zoom system from VTM (which may have custom pixelsPerSecond)
-    const zoomSystem = virtualTimeline && vtmZoomSystem
-        ? vtmZoomSystem
-        : createZoomSystem(zoomLevel);
+    // Get zoom system from VTM - always use VTM's zoom system
+    const zoomSystem = vtmZoomSystem || (virtualTimeline ? virtualTimeline.getZoomSystem() : createZoomSystem());
 
     // Use migrated cells if available, otherwise fall back to original cells
     const cellsToRender = migratedCells || sceneEditor?.cells || [];
@@ -213,7 +221,7 @@ const TimelineCanvas: React.FC<TimelineCanvasProps> = ({
                 <div className="timeline-ruler-container">
                     <TimelineRuler
                         totalDuration={totalDuration}
-                        zoomLevel={zoomLevel}
+                        zoomSystem={zoomSystem}
                         virtualTimeline={virtualTimeline}
                         timelineMode={timelineMode}
                     />
@@ -373,7 +381,7 @@ const TimelineCanvas: React.FC<TimelineCanvasProps> = ({
                 {virtualTimeline && (
                     <TimelinePlayhead
                         virtualTimeline={virtualTimeline}
-                        zoomLevel={zoomLevel}
+                        zoomSystem={zoomSystem}
                         totalDuration={totalDuration}
                         timelineWidth={timelineWidth} // Use actual content width, not screen-based width
                     />
