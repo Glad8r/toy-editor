@@ -81,7 +81,14 @@ const extractVideoFrameWithCORS = async (
             video.currentTime = seekTime;
         };
 
+        // Guard against multiple extractions
+        let frameExtracted = false;
+        
         const extractFrame = () => {
+            // CRITICAL FIX: Only extract once
+            if (frameExtracted) return;
+            frameExtracted = true;
+            
             try {
                 // Draw video frame to canvas
                 ctx.drawImage(video, 0, 0, width, height);
@@ -89,9 +96,12 @@ const extractVideoFrameWithCORS = async (
                 // Convert canvas to data URL
                 const dataUrl = canvas.toDataURL('image/jpeg', quality);
 
-                // Clean up
-                video.remove();
-                canvas.remove();
+                // Clean up - these elements were never added to DOM, just release references
+                video.src = '';
+                video.onloadedmetadata = null;
+                video.onseeked = null;
+                video.onerror = null;
+                video.ontimeupdate = null;
 
                 resolve(dataUrl);
             } catch (error) {

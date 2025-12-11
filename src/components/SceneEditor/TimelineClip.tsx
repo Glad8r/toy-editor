@@ -1,20 +1,15 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useCanvas } from '../../contexts/TimelineContext';
 import { SceneEditorCell, NodeType, MediaNode } from '../../types/timeline';
-import { ZoomLevel, ZoomSystem, timeToPixel } from './zoomSystem';
+import { ZoomSystem } from './zoomSystem';
 import { getClipDuration } from './timelineUtils';
-import { extractVideoFrames, generateKeyframeTimestamps, getVideoMetadata } from '../../services/videoFrameExtractor';
-import keyframeCacheService from '../../services/keyframeCache';
+// Premiere-style: Only extract first and last frame thumbnails
+import { extractVideoFrame } from './videoFrameExtractor';
 import mediaService from '../../services/mediaService';
 import { X } from 'lucide-react';
 import { RemoveSceneEditorCellOperation, MoveTimelineClipOperation, TrimSceneEditorCellOperation } from '../../operations/SceneEditorOperations';
 import TrimHandles from './TrimHandles';
 import { TimelineMode, useTimelineMode } from './TimelineModeContext';
-
-interface ClipKeyframe {
-    timeOffset: number;      // Seconds from clip start (0, 1, 2, 3...)
-    thumbnailUrl: string;    // Frame thumbnail
-}
 
 interface TimelineClipProps {
     cell: SceneEditorCell;
@@ -57,8 +52,12 @@ const TimelineClip: React.FC<TimelineClipProps> = ({
 }) => {
     const { nodes, stateManager } = useCanvas();
     const { enterRearrangeMode, exitRearrangeMode } = useTimelineMode();
-    const [keyframes, setKeyframes] = useState<ClipKeyframe[]>([]);
-    const [isLoading, setIsLoading] = useState(true);
+    
+    // Premiere-style: Only first and last frame thumbnails
+    const [firstFrameUrl, setFirstFrameUrl] = useState<string | null>(null);
+    const [lastFrameUrl, setLastFrameUrl] = useState<string | null>(null);
+    const [thumbnailsLoading, setThumbnailsLoading] = useState(true);
+    
     const [isDragging, setIsDragging] = useState(false);
     const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
     const [showTrimHandles, setShowTrimHandles] = useState(false);
@@ -137,134 +136,65 @@ const TimelineClip: React.FC<TimelineClipProps> = ({
 
         console.debug('🎯 TimelineClip using NORMAL position for', cell.id, 'width:', clipWidth, 'left:', clipLeft, 'mode:', timelineMode, 'hasSpacedPos:', !!spacedPosition);
     }
-    const keyframeCount = zoomSystem.getKeyframeCount(clipDuration);
-
-    // Generate keyframes based on zoom level and clip duration
+    // Premiere-style: Extract only first and last frame thumbnails
+    // Runs once per clip (not affected by zoom changes)
     useEffect(() => {
-        if (!mediaNode) return;
-
-        const generateKeyframes = async () => {
-            setIsLoading(true);
-            const frames: ClipKeyframe[] = [];
-
+        if (!mediaNode || mediaNode.type !== NodeType.VIDEO) {
+            setThumbnailsLoading(false);
+            return;
+        }
+        
+        let isCancelled = false;
+        
+        const extractThumbnails = async () => {
             try {
-                if (mediaNode.type === NodeType.IMAGE) {
-                    // For images, just repeat the same thumbnail
-                    const thumbnailUrl = await mediaService.getMediaUrl(mediaNode.data.url);
-
-                    for (let i = 0; i < keyframeCount; i++) {
-                        const timeOffset = (clipDuration / keyframeCount) * i;
-                        frames.push({
-                            timeOffset,
-                            thumbnailUrl
-                        });
-                    }
-                } else if (mediaNode.type === NodeType.VIDEO) {
-                    // For videos, try to use cached keyframes first
-                    const videoUrl = await mediaService.getMediaUrl(mediaNode.data.url);
-                    const trimStart = cell.trimStart || 0;
-                    const trimEnd = cell.trimEnd || 0;
-
-                    // Check if keyframes are cached
-                    // Pass pixelsPerSecond to enable continuous zoom filtering
-                    const cachedKeyframes = keyframeCacheService.getCachedKeyframes(
-                        videoUrl,
-                        zoomSystem.level,
-                        trimStart,
-                        trimEnd,
-                        zoomSystem.pixelsPerSecond
-                    );
-
-                    if (cachedKeyframes) {
-                        // Convert cached keyframes to component format
-                        cachedKeyframes.frameUrls.forEach((frameUrl, index) => {
-                            const timestamp = cachedKeyframes.timestamps[index];
-                            frames.push({
-                                timeOffset: timestamp - trimStart, // Relative to clip start
-                                thumbnailUrl: frameUrl
-                            });
-                        });
-                    } else {
-                        // Trigger pre-extraction for this video in the background
-                        keyframeCacheService.preExtractKeyframes(videoUrl, undefined, trimStart, trimEnd)
-                            .then(() => {
-                                // Re-trigger keyframe generation to use newly cached frames
-                                generateKeyframes();
-                            })
-                            .catch(error => {
-                                console.warn('Background pre-extraction failed:', error);
-                            });
-
-                        // Fallback to on-demand extraction if not cached
-                        try {
-                            // Get video metadata for accurate duration
-                            const metadata = keyframeCacheService.getVideoMetadata(videoUrl, trimStart, trimEnd) ||
-                                await getVideoMetadata(videoUrl);
-                            const videoDuration = metadata.duration;
-
-                            // Generate timestamps for keyframe extraction
-                            const timestamps = generateKeyframeTimestamps(
-                                videoDuration,
-                                keyframeCount,
-                                trimStart,
-                                trimEnd
-                            );
-
-                            // Extract frames at those timestamps
-                            const frameUrls = await extractVideoFrames(videoUrl, timestamps, {
-                                width: 160,
-                                height: 90,
-                                quality: 0.7
-                            });
-
-                            // Create keyframe objects
-                            frameUrls.forEach((frameUrl, index) => {
-                                frames.push({
-                                    timeOffset: timestamps[index] - trimStart, // Relative to clip start
-                                    thumbnailUrl: frameUrl
-                                });
-                            });
-
-                            // Fallback: if extraction failed, show single frame
-                            if (frames.length === 0) {
-                                const fallbackFrame = await extractVideoFrames(videoUrl, [videoDuration / 2], {
-                                    width: 160,
-                                    height: 90,
-                                    quality: 0.7
-                                });
-
-                                frames.push({
-                                    timeOffset: 0,
-                                    thumbnailUrl: fallbackFrame[0] || ''
-                                });
-                            }
-
-                        } catch (error) {
-                            console.error('Error extracting video frames:', error);
-                            // Fallback to single frame at middle
-                            frames.push({
-                                timeOffset: clipDuration / 2,
-                                thumbnailUrl: '' // Will show placeholder
-                            });
-                        }
-                    }
+                const videoUrl = await mediaService.getMediaUrl(mediaNode.data.url);
+                const duration = mediaNode.data.duration || clipDuration;
+                const trimStart = cell.trimStart || 0;
+                const trimEnd = cell.trimEnd || 0;
+                
+                // First frame: at trimStart (or 0.1s to avoid black frames)
+                const firstFrameTime = Math.max(0.1, trimStart);
+                // Last frame: at end minus trimEnd (or 0.1s before end)
+                const lastFrameTime = Math.max(0, duration - trimEnd - 0.1);
+                
+                // Extract first frame - 16:9 aspect ratio (160x90)
+                const firstUrl = await extractVideoFrame(videoUrl, firstFrameTime, {
+                    width: 160,
+                    height: 90,
+                    quality: 0.8
+                });
+                
+                if (isCancelled) return;
+                setFirstFrameUrl(firstUrl);
+                
+                // Extract last frame (only if clip is long enough) - 16:9 aspect ratio
+                if (lastFrameTime > firstFrameTime + 1) {
+                    const lastUrl = await extractVideoFrame(videoUrl, lastFrameTime, {
+                        width: 160,
+                        height: 90,
+                        quality: 0.8
+                    });
+                    
+                    if (isCancelled) return;
+                    setLastFrameUrl(lastUrl);
                 }
-
-                setKeyframes(frames);
+                
+                setThumbnailsLoading(false);
             } catch (error) {
-                console.error('Error generating keyframes:', error);
-                // Fallback to single frame
-                setKeyframes([{
-                    timeOffset: 0,
-                    thumbnailUrl: ''
-                }]);
-            } finally {
-                setIsLoading(false);
+                console.warn('Failed to extract clip thumbnails:', error);
+                if (!isCancelled) {
+                    setThumbnailsLoading(false);
+                }
             }
         };
-
-        generateKeyframes();
-    }, [mediaNode, keyframeCount, clipDuration, zoomSystem.level]);
+        
+        extractThumbnails();
+        
+        return () => {
+            isCancelled = true;
+        };
+    }, [cell.id, mediaNode?.data.url]); // Only re-run if clip ID or video URL changes
 
     // Handle clip deletion
     const handleDelete = (e: React.MouseEvent) => {
@@ -487,56 +417,59 @@ const TimelineClip: React.FC<TimelineClipProps> = ({
                     filter: 'none !important'
                 }}
             >
-                {/* Concatenated keyframes */}
-                <div className="timeline-clip-keyframes">
-                    {isLoading ? (
-                        <div className="timeline-clip-loading">
-                            <div className="loading-spinner" />
-                            <div className="loading-text">
-                                {mediaNode.type === NodeType.VIDEO ? 'Loading frames...' : 'Loading...'}
-                            </div>
+                {/* Premiere-style: First and last frame thumbnails at edges */}
+                <div className="timeline-clip-thumbnails" style={{ 
+                    display: 'flex',
+                    width: '100%',
+                    height: '100%',
+                    position: 'relative',
+                    overflow: 'hidden',
+                    background: '#406a94' /* Bluish background for entire clip */
+                }}>
+                    {/* First frame thumbnail - left edge, full 16:9 image */}
+                    {firstFrameUrl && (
+                        <img 
+                            src={firstFrameUrl} 
+                            alt="First frame"
+                            style={{
+                                position: 'absolute',
+                                left: 0,
+                                top: 0,
+                                height: '100%',
+                                width: 'auto' /* Let width be determined by aspect ratio */
+                            }}
+                            draggable={false}
+                        />
+                    )}
+                    
+                    {/* Last frame thumbnail - right edge, full 16:9 image */}
+                    {lastFrameUrl && (
+                        <img 
+                            src={lastFrameUrl} 
+                            alt="Last frame"
+                            style={{
+                                position: 'absolute',
+                                right: 0,
+                                top: 0,
+                                height: '100%',
+                                width: 'auto' /* Let width be determined by aspect ratio */
+                            }}
+                            draggable={false}
+                        />
+                    )}
+                    
+                    {/* Loading indicator */}
+                    {thumbnailsLoading && (
+                        <div style={{
+                            position: 'absolute',
+                            inset: 0,
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            background: 'rgba(64, 106, 148, 0.8)' /* Bluish with opacity */
+                        }}>
+                            <div className="loading-spinner" style={{ width: 16, height: 16 }} />
                         </div>
-                    ) : (
-                        keyframes.map((keyframe, index) => {
-                            const keyframeWidth = clipWidth / keyframes.length;
-                            const keyframeLeft = keyframeWidth * index;
-
-                            return (
-                                <div
-                                    key={index}
-                                    className="timeline-clip-keyframe"
-                                    style={{
-                                        position: 'absolute',
-                                        left: `${keyframeLeft}px`,
-                                        width: `${keyframeWidth}px`,
-                                        height: '100%'
-                                    }}
-                                >
-                                    {keyframe.thumbnailUrl ? (
-                                        <img
-                                            src={keyframe.thumbnailUrl}
-                                            alt={`Frame ${index}`}
-                                            className="keyframe-thumbnail"
-                                            draggable={false}
-                                            onError={(e) => {
-                                                // Hide broken images
-                                                (e.target as HTMLImageElement).style.display = 'none';
-                                            }}
-                                        />
-                                    ) : (
-                                        <div className="keyframe-placeholder">
-                                            <span className="placeholder-icon">
-                                            </span>
-                                        </div>
-                                    )}
-
-                                    {/* Keyframe separator (except for last) */}
-                                    {index < keyframes.length - 1 && (
-                                        <div className="keyframe-separator" />
-                                    )}
-                                </div>
-                            );
-                        })
                     )}
                 </div>
 
