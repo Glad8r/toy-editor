@@ -36,6 +36,7 @@ export interface ExportConfig {
 export interface TimelineClip {
   clipId: string;
   startTime: number;
+  trackId?: string; // Track identifier (e.g., "track-1", "track-2")
   mediaId: string;
   mediaType: 'video' | 'image';
   trim: {
@@ -51,10 +52,20 @@ export interface TimelineClip {
   opacity?: number; // Opacity value 0-100 (default: 100)
 }
 
+export interface TimelineTrack {
+  trackId: string; // Track identifier (e.g., "track-1", "track-2")
+  zIndex: number; // Track order (0 = bottom layer, higher = top layer)
+  clips: TimelineClip[]; // Clips in this track (sorted by startTime)
+  locked?: boolean; // Prevent editing (future)
+  muted?: boolean; // Mute audio (future)
+  visible?: boolean; // Show/hide track (future)
+}
+
 export interface TimelineData {
   timelineId: string;
   totalDuration: number;
-  clips: TimelineClip[];
+  tracks: TimelineTrack[]; // Track-based structure (new)
+  clips?: TimelineClip[]; // Legacy flat array (for backward compatibility)
   aspectRatio: string;
 }
 
@@ -143,7 +154,8 @@ export async function buildExportRequest(
   });
 
   // Build timeline clips and collect media file info
-  const clips: TimelineClip[] = [];
+  const clips: TimelineClip[] = []; // Legacy flat array (for backward compatibility)
+  const tracksMap = new Map<string, TimelineClip[]>(); // Group clips by track
   const mediaFiles: MediaFileUpload[] = [];
 
   for (const cell of sortedCells) {
@@ -159,10 +171,15 @@ export async function buildExportRequest(
     const trimEnd = cell.trimEnd || 0;
     const effectiveDuration = Math.max(0.1, originalDuration - trimStart - trimEnd);
 
+    // Get trackId (default to "track-1" for backward compatibility)
+    // Note: trackId is not yet in SceneEditorCell type, but we support it for future multi-track
+    const trackId = (cell as any).trackId || 'track-1';
+
     // Build clip data
     const clip: TimelineClip = {
       clipId: cell.id,
       startTime: cell.startTime || 0,
+      trackId, // Include trackId in clip
       mediaId: mediaNode.id,
       mediaType: mediaNode.type === NodeType.VIDEO ? 'video' : 'image',
       trim: {
@@ -182,7 +199,13 @@ export async function buildExportRequest(
       opacity: cell.opacity !== undefined ? cell.opacity : 100,
     };
 
-    clips.push(clip);
+    clips.push(clip); // Legacy flat array
+
+    // Group clips by track
+    if (!tracksMap.has(trackId)) {
+      tracksMap.set(trackId, []);
+    }
+    tracksMap.get(trackId)!.push(clip);
 
     // Collect media file metadata (for reference, not actual file data in JSON)
     // In the future, when sending to server, we'll include actual file data
@@ -201,11 +224,22 @@ export async function buildExportRequest(
   // Calculate total duration
   const totalDuration = clips.reduce((sum, clip) => sum + clip.duration, 0);
 
+  // Build tracks array from tracksMap
+  // Sort tracks by trackId (track-1, track-2, etc.) and assign zIndex
+  // Lower zIndex = lower layer (rendered first/bottom)
+  const sortedTrackIds = Array.from(tracksMap.keys()).sort();
+  const tracks: TimelineTrack[] = sortedTrackIds.map((trackId, index) => ({
+    trackId,
+    zIndex: index, // Lower index = lower layer (rendered first)
+    clips: tracksMap.get(trackId)!,
+  }));
+
   // Build timeline data
   const timeline: TimelineData = {
     timelineId: canvas.id || `timeline-${Date.now()}`,
     totalDuration,
-    clips,
+    tracks, // New: Track-based structure
+    clips, // Legacy: Flat array (for backward compatibility)
     aspectRatio: sceneEditor.aspectRatio || '16:9',
   };
 

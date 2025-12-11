@@ -3,6 +3,7 @@ export { default as VideoPreviewArea } from './VideoPreviewArea';
 export { default as TimelineArea } from './TimelineArea';
 export { default as TimelineControls } from './TimelineControls';
 export { default as TimelineCanvas } from './TimelineCanvas';
+export { default as TimelineTrack } from './TimelineTrack';
 export { default as TimelineRuler } from './TimelineRuler';
 export { default as TimelineClip } from './TimelineClip';
 // ZoomControls removed - using continuous zoom via slider in VideoPlaybackPanel

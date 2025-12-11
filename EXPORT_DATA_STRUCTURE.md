@@ -75,11 +75,38 @@ interface TimelineData {
   // Total duration in seconds (calculated)
   totalDuration: number;
   
-  // Clips in timeline order (sorted by startTime)
-  clips: TimelineClip[];
+  // Timeline tracks (for multi-track support)
+  // Currently: Single track (track-1) is active
+  // Future: Multiple tracks for compositing/overlays
+  tracks: TimelineTrack[];
+  
+  // Legacy: Flat clips array (deprecated, use tracks[].clips instead)
+  // Kept for backward compatibility
+  clips?: TimelineClip[];
   
   // Timeline metadata
   aspectRatio: string;  // e.g., "16:9" (from SceneEditor)
+}
+```
+
+### Timeline Track
+
+```typescript
+interface TimelineTrack {
+  // Track identifier (e.g., "track-1", "track-2")
+  trackId: string;
+  
+  // Track order (0 = bottom layer, higher = top layer)
+  // For compositing: higher zIndex tracks render on top
+  zIndex: number;
+  
+  // Clips in this track (sorted by startTime)
+  clips: TimelineClip[];
+  
+  // Track properties (for future enhancements)
+  locked?: boolean;      // Prevent editing
+  muted?: boolean;       // Mute audio (if audio tracks added)
+  visible?: boolean;     // Show/hide track
 }
 ```
 
@@ -92,6 +119,11 @@ interface TimelineClip {
   
   // Timeline position
   startTime: number;    // Global start time in seconds (from SceneEditorCell.startTime)
+  
+  // Track assignment (for multi-track support)
+  // Currently: All clips default to "track-1"
+  // Future: Clips can be assigned to different tracks for compositing
+  trackId?: string;     // Track identifier (e.g., "track-1", "track-2")
   
   // Media reference
   mediaId: string;      // Reference to MediaNode.id (used to match with mediaFiles/mediaReferences)
@@ -202,6 +234,68 @@ interface MediaReference {
     "timelineId": "timeline-123456",
     "totalDuration": 45.5,
     "aspectRatio": "16:9",
+    "tracks": [
+      {
+        "trackId": "track-1",
+        "zIndex": 0,
+        "clips": [
+          {
+            "clipId": "cell-1",
+            "startTime": 0,
+            "trackId": "track-1",
+            "mediaId": "node-video-1",
+            "mediaType": "video",
+            "trim": {
+              "start": 2.5,
+              "end": 1.0
+            },
+            "duration": 10.5,
+            "sourceDuration": 14.0,
+            "sourceDimensions": {
+              "width": 1920,
+              "height": 1080
+            },
+            "opacity": 100
+          },
+          {
+            "clipId": "cell-2",
+            "startTime": 10.5,
+            "trackId": "track-1",
+            "mediaId": "node-image-1",
+            "mediaType": "image",
+            "trim": {
+              "start": 0,
+              "end": 0
+            },
+            "duration": 3.0,
+            "sourceDuration": 0,
+            "sourceDimensions": {
+              "width": 3840,
+              "height": 2160
+            },
+            "opacity": 75
+          },
+          {
+            "clipId": "cell-3",
+            "startTime": 13.5,
+            "trackId": "track-1",
+            "mediaId": "node-video-2",
+            "mediaType": "video",
+            "trim": {
+              "start": 0,
+              "end": 5.0
+            },
+            "duration": 32.0,
+            "sourceDuration": 37.0,
+            "sourceDimensions": {
+              "width": 1280,
+              "height": 720
+            },
+            "opacity": 100
+          }
+        ]
+      }
+    ],
     "clips": [
       {
         "clipId": "cell-1",
@@ -393,9 +487,18 @@ class VideoExportRequestBuilder implements ExportRequestBuilder {
           : undefined,
         // Include opacity if set (defaults to 100 if not specified)
         opacity: cell.opacity !== undefined ? cell.opacity : 100,
+        // Include trackId if set (defaults to "track-1" for backward compatibility)
+        trackId: cell.trackId || 'track-1',
       };
 
-      clips.push(clip);
+      clips.push(clip); // Legacy flat array
+      
+      // Group clips by track
+      const trackId = cell.trackId || 'track-1';
+      if (!tracksMap.has(trackId)) {
+        tracksMap.set(trackId, []);
+      }
+      tracksMap.get(trackId)!.push(clip);
 
       // Handle media file/reference
       if (uploadMedia) {
@@ -442,11 +545,23 @@ class VideoExportRequestBuilder implements ExportRequestBuilder {
     // Calculate total duration
     const totalDuration = clips.reduce((sum, clip) => sum + clip.duration, 0);
 
+    // Build tracks array from tracksMap
+    // Sort tracks by trackId (track-1, track-2, etc.) and assign zIndex
+    const sortedTrackIds = Array.from(tracksMap.keys()).sort();
+    sortedTrackIds.forEach((trackId, index) => {
+      tracks.push({
+        trackId,
+        zIndex: index, // Lower index = lower layer (rendered first)
+        clips: tracksMap.get(trackId)!,
+      });
+    });
+
     // Build timeline data
     const timeline: TimelineData = {
       timelineId: canvas.id || `timeline-${Date.now()}`,
       totalDuration,
-      clips,
+      tracks, // New: Track-based structure
+      clips,  // Legacy: Flat array (for backward compatibility)
       aspectRatio: sceneEditor.aspectRatio || '16:9',
     };
 
@@ -578,6 +693,8 @@ interface ExportProgressMessage {
    - All clips have valid media references
    - No negative startTime values
    - Clips don't overlap (unless intentional)
+   - All clips have valid trackId (defaults to "track-1" if not specified)
+   - Tracks array is properly structured with zIndex for compositing order
 
 2. **Trim Validation**
    - `trim.start >= 0`
@@ -607,6 +724,10 @@ interface ExportProgressMessage {
    - Trim values don't exceed source duration
    - Timeline is sequential
    - Media files are valid (can be opened/decoded)
+   - Track zIndex values are valid (for compositing order)
+   - Clips within same track don't overlap (unless intentional for compositing)
+   - Track zIndex values are valid (for compositing order)
+   - Clips within same track don't overlap (unless intentional for compositing)
 
 ---
 
@@ -689,18 +810,28 @@ interface TimelineClip {
 This data structure provides:
 
 1. **Complete Timeline Information**: All clips with trimming, positioning, ordering, and properties (opacity)
-2. **Media References**: Either file uploads or server-side references
-3. **Export Configuration**: All settings needed for video generation
-4. **Clip Properties**: Opacity control (0-100) for each clip
-5. **Extensibility**: Easy to add future features (transitions, effects, audio)
-6. **Validation**: Clear validation rules for both frontend and backend
-7. **Error Handling**: Comprehensive error codes and messages
+2. **Track-Based Structure**: Clips organized by tracks for multi-track compositing support
+3. **Media References**: Either file uploads or server-side references
+4. **Export Configuration**: All settings needed for video generation
+5. **Clip Properties**: Opacity control (0-100) and track assignment for each clip
+6. **Backward Compatibility**: Legacy flat `clips` array maintained for compatibility
+7. **Extensibility**: Easy to add future features (transitions, effects, audio)
+8. **Validation**: Clear validation rules for both frontend and backend
+9. **Error Handling**: Comprehensive error codes and messages
 
 The backend can use this structure to:
 - Validate the export request
 - Process each clip with trimming and opacity settings
 - Apply opacity effects during composition (0-100, where 100 = fully opaque)
+- Composite multiple tracks (higher zIndex tracks render on top)
 - Compose the final timeline
 - Encode the output video
 - Return the result to the user
+
+### Current State
+
+- **Single Track Active**: Currently all clips are on "track-1" (default)
+- **Track 2 Visual Mockup**: Track 2 exists as visual placeholder only (no functionality)
+- **Export Format**: Both `tracks[]` (new) and `clips[]` (legacy) are included for compatibility
+- **Future**: Multi-track compositing will use `tracks[]` structure with zIndex for layering
 

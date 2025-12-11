@@ -4,7 +4,7 @@ import { useClipSelection } from '../../contexts/ClipSelectionContext';
 import { SceneEditorCell as SceneEditorCellType } from '../../types/timeline';
 import { NodeType } from '../../types/timeline';
 import TimelineRuler from './TimelineRuler';
-import TimelineClip from './TimelineClip';
+import TimelineTrack from './TimelineTrack';
 import TimelinePlayhead from './TimelinePlayhead';
 import { createZoomSystem, ZoomSystem } from './zoomSystem';
 import { VirtualTimelineManager } from './VirtualTimelineManager';
@@ -228,154 +228,119 @@ const TimelineCanvas: React.FC<TimelineCanvasProps> = ({
                     />
                 </div>
 
-                {/* Clips Track */}
-                <div className="timeline-track-container">
-                <div
-                    className={`timeline-clips-track ${rearrangeDragHandler.dragState.isDragging ? 'timeline-track-drag-active' : ''}`}
-                    style={{
-                        position: 'relative',
-                        width: `${Math.max(timelineWidth, window.innerWidth * 0.9)}px`,
-                        height: '80px',
-                        overflow: 'visible'
-                    }}
-                    onDragOver={handleTrackDragOver}
-                    onDrop={handleTrackDrop}
-                >
-                    {/* Render clips with absolute positioning */}
-                    {cellsToRender.map((cell) => {
-                        // Get spaced position for rearrange mode
-                        const spacedPosition = timelineMode === 'rearrange'
-                            ? rearrangeDragHandler.getClipSpacedPosition(cell.id)
-                            : null;
-
-                        // Check if this clip is being dragged in rearrange mode
-                        const isBeingDraggedInRearrange = timelineMode === 'rearrange' &&
-                            rearrangeDragHandler.dragState.isDragging &&
-                            rearrangeDragHandler.dragState.draggedClipId === cell.id;
-
-                        // Phase 2: Check if this clip should show ripple preview
-                        const shouldShowRipplePreview = ripplePreview?.isActive &&
-                            ripplePreview.clipId !== cell.id &&
-                            ripplePreview.ripplePositions?.some(rp => rp.clipId === cell.id);
-
-                        const ripplePosition = shouldShowRipplePreview
-                            ? ripplePreview.ripplePositions?.find(rp => rp.clipId === cell.id)
-                            : null;
-
-                        return (
-                            <TimelineClip
-                                key={cell.id}
-                                cell={cell}
-                                zoomSystem={zoomSystem}
-                                onSelect={setSelectedClipId}
-                                isSelected={selectedClipId === cell.id}
-                                onDragStart={handleClipDragStart}
-                                onDragEnd={timelineMode === 'trim' ? handleClipDragEnd : undefined}
-                                timelineMode={timelineMode}
-                                spacedPosition={spacedPosition}
-                                isBeingDragged={isBeingDraggedInRearrange}
-                                // Phase 2: Ripple preview support
-                                ripplePreview={ripplePosition ? {
-                                    isActive: true,
-                                    newLeft: ripplePosition.left,
-                                    originalLeft: zoomSystem.getPixelFromTime(ripplePosition.originalStartTime)
-                                } : null}
-                                // Phase 2: Pass trim handlers for ripple preview
-                                onTrimUpdate={onTrimUpdate}
-                                onTrimEnd={onTrimEnd}
-                                // Phase 2.5: Pass enhanced trim handler with playhead sync
-                                onTrimUpdateWithPlayhead={onTrimUpdateWithPlayhead}
-                            />
-                        );
-                    })}
-
-                    {/* Drop indicator line */}
-                    {rearrangeDragHandler.dragState.isDragging && rearrangeDragHandler.dragState.insertionPixelPosition !== null && (
-                        <div
-                            className="timeline-drop-indicator"
-                            style={{
-                                position: 'absolute',
-                                left: `${rearrangeDragHandler.dragState.insertionPixelPosition}px`,
-                                top: '0',
-                                bottom: '0',
-                                width: '4px',
-                                background: 'linear-gradient(to bottom, #10b981, #059669)',
-                                borderRadius: '2px',
-                                boxShadow: '0 0 12px rgba(16, 185, 129, 0.8)',
-                                zIndex: 500,
-                                opacity: 1,
-                                animation: 'pulseDropIndicator 1.2s ease-in-out infinite',
-                                transform: 'translateX(-2px)' // Center the line
-                            }}
-                        >
-                            {/* Position indicator label with smart text */}
-                            <div
-                                style={{
-                                    position: 'absolute',
-                                    top: '50%',
-                                    left: '12px',
-                                    transform: 'translateY(-50%)',
-                                    background: '#10b981',
-                                    color: 'white',
-                                    padding: '3px 8px',
-                                    borderRadius: '6px',
-                                    fontSize: '11px',
-                                    fontWeight: '600',
-                                    whiteSpace: 'nowrap',
-                                    boxShadow: '0 2px 12px rgba(0, 0, 0, 0.4)',
-                                    border: '1px solid rgba(255, 255, 255, 0.2)'
-                                }}
-                            >
-                                {(() => {
-                                    const position = rearrangeDragHandler.dragState.insertionIndex || 0;
-                                    const totalClips = cellsToRender.length;
-
-                                    if (position === 0) {
-                                        return 'Move to start';
-                                    } else if (position >= totalClips) {
-                                        return 'Move to end';
-                                    } else {
-                                        return `Position ${position + 1}`;
-                                    }
-                                })()}
-                            </div>
-                        </div>
-                    )}
-
-                    {/* TODO: Add "Add Clip" functionality back in future phase */}
-                </div>
-
-                {/* Drag ghost - follows cursor */}
-                {rearrangeDragHandler.dragState.isDragging && rearrangeDragHandler.dragState.draggedClipData && (
+                {/* Timeline Tracks */}
+                <div className="timeline-track-container" style={{ position: 'relative', minHeight: '160px' }}>
+                    {/* ============================================ */}
+                    {/* TRACK 1 - ACTIVE TRACK */}
+                    {/* ============================================ */}
+                    
+                    {/* Top horizontal line - Track 1 top border */}
                     <div
-                        className="timeline-drag-ghost"
+                        className="timeline-track-border-top"
                         style={{
-                            position: 'fixed',
-                            left: `${rearrangeDragHandler.dragState.mousePosition.x - 60}px`, // Offset to center on cursor
-                            top: `${rearrangeDragHandler.dragState.mousePosition.y - 40}px`,
-                            width: '120px', // Fixed width for ghost
-                            height: '80px',
-                            background: 'var(--card)',
-                            border: '2px solid var(--primary)',
-                            borderRadius: '4px',
-                            boxShadow: '0 8px 25px rgba(0, 0, 0, 0.3)',
-                            opacity: 0.9,
-                            zIndex: 9999,
-                            pointerEvents: 'none',
-                            transform: 'rotate(5deg)',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            fontSize: '12px',
-                            color: 'var(--primary)',
-                            fontWeight: '600'
+                            position: 'absolute',
+                            top: 0,
+                            left: 0,
+                            right: 0,
+                            height: '1px',
+                            backgroundColor: '#e5e7eb', // gray-200
+                            zIndex: 1,
+                            pointerEvents: 'none'
                         }}
-                    >
-                        🎬 {draggedMediaNode?.type === NodeType.VIDEO ? 'Video' : 'Image'}
-                        <br />
-                        {Math.round((rearrangeDragHandler.dragState.draggedClipData?.duration || 0) * 10) / 10}s
-                    </div>
-                )}
+                    />
+                    
+                    {/* Bottom horizontal line - Track 1 bottom border (80px from top) */}
+                    <div
+                        className="timeline-track-border-bottom"
+                        style={{
+                            position: 'absolute',
+                            top: '80px', // Position at bottom of track 1 (track height is 80px)
+                            left: 0,
+                            right: 0,
+                            height: '1px',
+                            backgroundColor: '#e5e7eb', // gray-200
+                            zIndex: 1,
+                            pointerEvents: 'none'
+                        }}
+                    />
+                    
+                    {/* Active Track 1 - renders all clips */}
+                    <TimelineTrack
+                        trackId="track-1"
+                        cells={cellsToRender}
+                        zoomSystem={zoomSystem}
+                        virtualTimeline={virtualTimeline}
+                        timelineMode={timelineMode}
+                        timelineWidth={timelineWidth}
+                        selectedClipId={selectedClipId}
+                        onSelectClip={setSelectedClipId}
+                        onClipDragStart={handleClipDragStart}
+                        onClipDragEnd={timelineMode === 'trim' ? handleClipDragEnd : undefined}
+                        onTrackDragOver={handleTrackDragOver}
+                        onTrackDrop={handleTrackDrop}
+                        getClipSpacedPosition={(clipId) => rearrangeDragHandler.getClipSpacedPosition(clipId)}
+                        isClipBeingDragged={(clipId) => 
+                            timelineMode === 'rearrange' &&
+                            rearrangeDragHandler.dragState.isDragging &&
+                            rearrangeDragHandler.dragState.draggedClipId === clipId
+                        }
+                        ripplePreview={ripplePreview}
+                        onTrimUpdate={onTrimUpdate}
+                        onTrimEnd={onTrimEnd}
+                        onTrimUpdateWithPlayhead={onTrimUpdateWithPlayhead}
+                        showDropIndicator={rearrangeDragHandler.dragState.isDragging && rearrangeDragHandler.dragState.insertionPixelPosition !== null}
+                        dropIndicatorPosition={rearrangeDragHandler.dragState.insertionPixelPosition}
+                        insertionIndex={rearrangeDragHandler.dragState.insertionIndex}
+                        totalClips={cellsToRender.length}
+                        isDragging={rearrangeDragHandler.dragState.isDragging}
+                    />
+                    
+                    {/* ============================================ */}
+                    {/* TRACK 2 - TEMPORARY MOCKUP (INACTIVE) */}
+                    {/* ============================================ */}
+                    {/* 
+                        ⚠️ WARNING: This is a TEMPORARY VISUAL MOCKUP only!
+                        
+                        - Track 2 is completely INACTIVE - no functionality
+                        - No drag/drop support
+                        - No clip rendering
+                        - No interaction whatsoever
+                        - This is purely visual to show where track 2 will be
+                        
+                        TODO: Remove this mockup when implementing actual multi-track support
+                    */}
+                    
+                    {/* Top horizontal line - Track 2 top border (80px from top) */}
+                    <div
+                        className="timeline-track-border-top-mockup"
+                        style={{
+                            position: 'absolute',
+                            top: '80px', // Position at top of track 2 (below track 1)
+                            left: 0,
+                            right: 0,
+                            height: '1px',
+                            backgroundColor: '#d1d5db', // gray-300 (slightly different to indicate mockup)
+                            zIndex: 1,
+                            pointerEvents: 'none', // Completely inactive
+                            opacity: 0.6 // Slightly faded to indicate it's a mockup
+                        }}
+                    />
+                    
+                    {/* Bottom horizontal line - Track 2 bottom border (160px from top) */}
+                    <div
+                        className="timeline-track-border-bottom-mockup"
+                        style={{
+                            position: 'absolute',
+                            top: '160px', // Position at bottom of track 2 (80px + 80px)
+                            left: 0,
+                            right: 0,
+                            height: '1px',
+                            backgroundColor: '#d1d5db', // gray-300 (slightly different to indicate mockup)
+                            zIndex: 1,
+                            pointerEvents: 'none', // Completely inactive
+                            opacity: 0.6 // Slightly faded to indicate it's a mockup
+                        }}
+                    />
                 </div>
 
                 {/* Timeline Playhead - Inside scroll container so it scrolls with content */}
@@ -388,6 +353,38 @@ const TimelineCanvas: React.FC<TimelineCanvasProps> = ({
                     />
                 )}
             </div>
+
+            {/* Drag ghost - follows cursor (outside scroll container, fixed position) */}
+            {rearrangeDragHandler.dragState.isDragging && rearrangeDragHandler.dragState.draggedClipData && (
+                <div
+                    className="timeline-drag-ghost"
+                    style={{
+                        position: 'fixed',
+                        left: `${rearrangeDragHandler.dragState.mousePosition.x - 60}px`, // Offset to center on cursor
+                        top: `${rearrangeDragHandler.dragState.mousePosition.y - 40}px`,
+                        width: '120px', // Fixed width for ghost
+                        height: '80px',
+                        background: 'var(--card)',
+                        border: '2px solid var(--primary)',
+                        borderRadius: '4px',
+                        boxShadow: '0 8px 25px rgba(0, 0, 0, 0.3)',
+                        opacity: 0.9,
+                        zIndex: 9999,
+                        pointerEvents: 'none',
+                        transform: 'rotate(5deg)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        fontSize: '12px',
+                        color: 'var(--primary)',
+                        fontWeight: '600'
+                    }}
+                >
+                    🎬 {draggedMediaNode?.type === NodeType.VIDEO ? 'Video' : 'Image'}
+                    <br />
+                    {Math.round((rearrangeDragHandler.dragState.draggedClipData?.duration || 0) * 10) / 10}s
+                </div>
+            )}
         </div>
     );
 };
