@@ -46,6 +46,8 @@ export interface SceneEditorCell {
   duration?: number; // Clip duration in seconds
   trimStart?: number; // Seconds trimmed from source start
   trimEnd?: number; // Seconds trimmed from source end
+  // Clip properties
+  opacity?: number; // Opacity value 0-100 (default: 100)
 }
 
 // SceneEditor/Timeline data

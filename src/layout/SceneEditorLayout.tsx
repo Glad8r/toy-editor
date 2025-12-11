@@ -2,6 +2,7 @@ import React, { ReactNode } from 'react';
 import { ReactFlowProvider } from 'reactflow';
 import { SceneEditorInspector, SceneEditorRightPanel, SceneEditorHeader } from '../components/SceneEditor';
 import { SceneEditorPanelProvider, useSceneEditorPanel } from '../contexts/SceneEditorPanelContext';
+import { ClipSelectionProvider } from '../contexts/ClipSelectionContext';
 
 interface SceneEditorLayoutProps {
     children: ReactNode; // SceneEditor content
@@ -61,7 +62,9 @@ const SceneEditorLayoutContent: React.FC<SceneEditorLayoutProps> = ({ children }
 const SceneEditorLayout: React.FC<SceneEditorLayoutProps> = ({ children }) => {
     return (
         <SceneEditorPanelProvider>
-            <SceneEditorLayoutContent>{children}</SceneEditorLayoutContent>
+            <ClipSelectionProvider>
+                <SceneEditorLayoutContent>{children}</SceneEditorLayoutContent>
+            </ClipSelectionProvider>
         </SceneEditorPanelProvider>
     );
 };

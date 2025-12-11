@@ -117,11 +117,13 @@ interface TimelineClip {
     height: number;
   };
   
+  // Clip properties
+  opacity?: number;     // Opacity value 0-100 (default: 100) (from SceneEditorCell.opacity)
+  
   // Optional: Transform/effects (for future enhancements)
   transform?: {
     scale?: number;     // Scale factor (1.0 = original)
     position?: { x: number; y: number }; // Position offset
-    opacity?: number;   // 0.0 to 1.0
   };
 }
 ```
@@ -215,7 +217,8 @@ interface MediaReference {
         "sourceDimensions": {
           "width": 1920,
           "height": 1080
-        }
+        },
+        "opacity": 100
       },
       {
         "clipId": "cell-2",
@@ -231,7 +234,8 @@ interface MediaReference {
         "sourceDimensions": {
           "width": 3840,
           "height": 2160
-        }
+        },
+        "opacity": 75
       },
       {
         "clipId": "cell-3",
@@ -247,7 +251,8 @@ interface MediaReference {
         "sourceDimensions": {
           "width": 1280,
           "height": 720
-        }
+        },
+        "opacity": 100
       }
     ]
   },
@@ -386,6 +391,8 @@ class VideoExportRequestBuilder implements ExportRequestBuilder {
               height: mediaNode.data.height,
             }
           : undefined,
+        // Include opacity if set (defaults to 100 if not specified)
+        opacity: cell.opacity !== undefined ? cell.opacity : 100,
       };
 
       clips.push(clip);
@@ -681,16 +688,18 @@ interface TimelineClip {
 
 This data structure provides:
 
-1. **Complete Timeline Information**: All clips with trimming, positioning, and ordering
+1. **Complete Timeline Information**: All clips with trimming, positioning, ordering, and properties (opacity)
 2. **Media References**: Either file uploads or server-side references
 3. **Export Configuration**: All settings needed for video generation
-4. **Extensibility**: Easy to add future features (transitions, effects, audio)
-5. **Validation**: Clear validation rules for both frontend and backend
-6. **Error Handling**: Comprehensive error codes and messages
+4. **Clip Properties**: Opacity control (0-100) for each clip
+5. **Extensibility**: Easy to add future features (transitions, effects, audio)
+6. **Validation**: Clear validation rules for both frontend and backend
+7. **Error Handling**: Comprehensive error codes and messages
 
 The backend can use this structure to:
 - Validate the export request
-- Process each clip with trimming
+- Process each clip with trimming and opacity settings
+- Apply opacity effects during composition (0-100, where 100 = fully opaque)
 - Compose the final timeline
 - Encode the output video
 - Return the result to the user

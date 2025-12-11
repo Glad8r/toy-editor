@@ -48,6 +48,7 @@ export interface TimelineClip {
     width: number;
     height: number;
   };
+  opacity?: number; // Opacity value 0-100 (default: 100)
 }
 
 export interface TimelineData {
@@ -177,6 +178,8 @@ export async function buildExportRequest(
               height: mediaNode.data.height,
             }
           : undefined,
+      // Include opacity if set (defaults to 100 if not specified)
+      opacity: cell.opacity !== undefined ? cell.opacity : 100,
     };
 
     clips.push(clip);

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useCanvas } from '../../contexts/TimelineContext';
+import { useClipSelection } from '../../contexts/ClipSelectionContext';
 import { SceneEditorCell as SceneEditorCellType } from '../../types/timeline';
 import { NodeType } from '../../types/timeline';
 import TimelineRuler from './TimelineRuler';
@@ -51,7 +52,7 @@ const TimelineCanvas: React.FC<TimelineCanvasProps> = ({
 }) => {
     const { stateManager, nodes } = useCanvas();
     const { exitRearrangeMode, mode: hookTimelineMode } = useTimelineMode();
-    const [selectedClipId, setSelectedClipId] = useState<string | null>(null);
+    const { selectedClipId, setSelectedClipId } = useClipSelection();
     // Note: dropIndicatorPosition, proposedDropIndex, and mousePosition moved to dragState for batched updates
 
     // Get the scene editor data
