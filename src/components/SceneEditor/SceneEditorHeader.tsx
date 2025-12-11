@@ -1,11 +1,44 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useSceneEditorPanel } from '../../contexts/SceneEditorPanelContext';
+import { useCanvas } from '../../contexts/TimelineContext';
+import { videoExportService } from '../../services/videoExportService';
 
 const SceneEditorHeader: React.FC = () => {
     const { panelVisibility, togglePanel } = useSceneEditorPanel();
+    const { stateManager } = useCanvas();
+    const [isExporting, setIsExporting] = useState(false);
 
-    const handleExport = () => {
-        alert('Export feature coming soon! This would export your timeline to a video file.');
+    const handleExport = async () => {
+        try {
+            setIsExporting(true);
+
+            // Get current canvas data
+            const canvas = stateManager.getCanvas();
+
+            // FUTURE: When server-side export is implemented, this will:
+            // 1. Call videoExportService.exportVideo() which will send data to server
+            // 2. Show progress dialog with export status
+            // 3. Poll server for completion: GET /api/export/status/:jobId
+            // 4. Download final video when ready: GET /api/export/download/:jobId
+            // 5. Handle errors and show user feedback
+            //
+            // Example future implementation:
+            // const jobId = await videoExportService.exportVideo(canvas);
+            // showExportProgressDialog(jobId);
+            // await pollExportStatus(jobId);
+            // downloadFinalVideo(jobId);
+
+            // CURRENT: Generate and download JSON file
+            await videoExportService.exportVideo(canvas);
+
+            // Show success message (optional)
+            console.log('✅ Export JSON generated successfully');
+        } catch (error) {
+            console.error('Export failed:', error);
+            alert(`Export failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        } finally {
+            setIsExporting(false);
+        }
     };
 
     return (
@@ -40,10 +73,11 @@ const SceneEditorHeader: React.FC = () => {
                 <div className="h-6 w-px bg-filmforge-border-light"></div>
 
                 <button
-                    className="bg-[#1C0F09] text-white px-4 py-2 hover:bg-[#1C0F09]/90 transition-all duration-200 text-sm rounded-sm"
+                    className="bg-[#1C0F09] text-white px-4 py-2 hover:bg-[#1C0F09]/90 transition-all duration-200 text-sm rounded-sm disabled:opacity-50 disabled:cursor-not-allowed"
                     onClick={handleExport}
+                    disabled={isExporting}
                 >
-                    Export
+                    {isExporting ? 'Exporting...' : 'Export'}
                 </button>
             </div>
         </div>
