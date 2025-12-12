@@ -132,6 +132,26 @@ Add zoom
 Disable/enable tracks
 Add/delete tracks
 
+## Future design
+
+In a production system, exporting an edited video is a server-side rendering pipeline:
+- the editor sends a structured timeline + asset manifest,
+- backend service uses something like ffmpeg or a custom renderer
+- the final file is stored in object storage
+
+## Current implementation
+
+As a first step, I implemented:
+- a manifest format that captures endocing info, tracks, clips, assets, effects, etc 
+- a client-side export that lets the user download current project as JSON.
+
+This payload is  what a future render backend would consume
+
+## Next steps
+- Send this payload to an export API
+- Show progress dialog and poll for completion
+- Download final video when ready
+
 
 ## 4. What I Implemented
 
@@ -165,3 +185,8 @@ Commits:
 - Style: Update video playback panel layout for zoom slider 
 - Feature: Improve zoom system with continuous zoom and preserve zoom across updates
 - Perf: Add performance optimizations and debugging tools
+- Refactor: Replace discrete zoom calculations with continuous zoom system
+- Fix: infinite loops and state management
+- Refactor: Remove discrete zoom levels, use only continuous zoom
+- Feature: Implement simplified keyframe thumbnails
+- Implement video export JSON generation

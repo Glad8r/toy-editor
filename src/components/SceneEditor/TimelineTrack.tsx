@@ -89,6 +89,36 @@ const TimelineTrack: React.FC<TimelineTrackProps> = ({
             onDragOver={onTrackDragOver}
             onDrop={onTrackDrop}
         >
+            {/* Top horizontal line - aligns with top of the track, spans full timeline width */}
+            <div
+                className="timeline-track-border-top"
+                style={{
+                    position: 'absolute',
+                    top: 0,
+                    left: 0,
+                    width: `${Math.max(timelineWidth, window.innerWidth * 0.9)}px`, // Span full timeline width (same as track container)
+                    height: '1px',
+                    backgroundColor: '#e5e7eb', // gray-200
+                    zIndex: 1,
+                    pointerEvents: 'none'
+                }}
+            />
+
+            {/* Bottom horizontal line - aligns with bottom of the track, spans full timeline width */}
+            <div
+                className="timeline-track-border-bottom"
+                style={{
+                    position: 'absolute',
+                    top: '80px', // Aligns with the bottom of the 80px high track
+                    left: 0,
+                    width: `${Math.max(timelineWidth, window.innerWidth * 0.9)}px`, // Span full timeline width (same as track container)
+                    height: '1px',
+                    backgroundColor: '#e5e7eb', // gray-200
+                    zIndex: 1,
+                    pointerEvents: 'none'
+                }}
+            />
+
             {/* Render clips with absolute positioning */}
             {cells.map((cell) => {
                 // Get spaced position for rearrange mode

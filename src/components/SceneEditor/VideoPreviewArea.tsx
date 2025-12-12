@@ -74,7 +74,7 @@ const VideoPreviewArea: React.FC<VideoPreviewAreaProps> = ({ virtualTimeline, on
     // FIX: Use useMemo to get the node to avoid including nodes in dependencies
     const currentMediaNodeForUrl = useMemo(() => {
         if (!currentInstruction?.clip?.mediaNodeId) return null;
-        const node = nodes.find(node => node.id === currentInstruction.clip.mediaNodeId);
+        const node = nodes.find(node => node.id === currentInstruction?.clip?.mediaNodeId);
         return (node && (node.type === NodeType.IMAGE || node.type === NodeType.VIDEO)) 
             ? node as MediaNode 
             : null;
@@ -119,9 +119,9 @@ const VideoPreviewArea: React.FC<VideoPreviewAreaProps> = ({ virtualTimeline, on
 
     // Get the current media node
     const getCurrentMediaNode = () => {
-        if (!currentInstruction?.clip) return null;
+        if (!currentInstruction?.clip || !currentInstruction.clip) return null;
 
-        const node = nodes.find(node => node.id === currentInstruction.clip.mediaNodeId);
+        const node = nodes.find(node => node.id === currentInstruction.clip!.mediaNodeId);
         if (node && (node.type === NodeType.IMAGE || node.type === NodeType.VIDEO)) {
             return node as MediaNode;
         }
@@ -432,10 +432,8 @@ const VideoPreviewArea: React.FC<VideoPreviewAreaProps> = ({ virtualTimeline, on
             const gap = 50;
             const videoNodeWidth = 400;
 
-            // Check if there are existing children to stack vertically
-            const videoMediaNode = videoNode as MediaNode;
-            const childrenCount = videoMediaNode.data?.childrenIds?.length || 0;
-            const verticalOffset = childrenCount * 300; // Approximate height + gap
+            // Position new node to the right of video
+            const verticalOffset = 0; // No vertical stacking for now
 
             const position = {
                 x: videoNode.position.x + videoNodeWidth + gap,

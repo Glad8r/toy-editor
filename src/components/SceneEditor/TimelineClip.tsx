@@ -53,9 +53,11 @@ const TimelineClip: React.FC<TimelineClipProps> = ({
     const { nodes, stateManager } = useCanvas();
     const { enterRearrangeMode, exitRearrangeMode } = useTimelineMode();
     
-    // Premiere-style: Only first and last frame thumbnails
+    // Premiere-style: Only first and last frame thumbnails for videos
+    // For images: Display the image itself as thumbnail
     const [firstFrameUrl, setFirstFrameUrl] = useState<string | null>(null);
     const [lastFrameUrl, setLastFrameUrl] = useState<string | null>(null);
+    const [imageThumbnailUrl, setImageThumbnailUrl] = useState<string | null>(null);
     const [thumbnailsLoading, setThumbnailsLoading] = useState(true);
     
     const [isDragging, setIsDragging] = useState(false);
@@ -136,65 +138,78 @@ const TimelineClip: React.FC<TimelineClipProps> = ({
 
         console.debug('🎯 TimelineClip using NORMAL position for', cell.id, 'width:', clipWidth, 'left:', clipLeft, 'mode:', timelineMode, 'hasSpacedPos:', !!spacedPosition);
     }
-    // Premiere-style: Extract only first and last frame thumbnails
+    // Premiere-style: Extract only first and last frame thumbnails for videos
+    // For images: Load the image URL directly as thumbnail
     // Runs once per clip (not affected by zoom changes)
     useEffect(() => {
-        if (!mediaNode || mediaNode.type !== NodeType.VIDEO) {
+        if (!mediaNode) {
             setThumbnailsLoading(false);
             return;
         }
         
         let isCancelled = false;
         
-        const extractThumbnails = async () => {
+        const loadThumbnails = async () => {
             try {
-                const videoUrl = await mediaService.getMediaUrl(mediaNode.data.url);
-                const duration = mediaNode.data.duration || clipDuration;
-                const trimStart = cell.trimStart || 0;
-                const trimEnd = cell.trimEnd || 0;
-                
-                // First frame: at trimStart (or 0.1s to avoid black frames)
-                const firstFrameTime = Math.max(0.1, trimStart);
-                // Last frame: at end minus trimEnd (or 0.1s before end)
-                const lastFrameTime = Math.max(0, duration - trimEnd - 0.1);
-                
-                // Extract first frame - 16:9 aspect ratio (160x90)
-                const firstUrl = await extractVideoFrame(videoUrl, firstFrameTime, {
-                    width: 160,
-                    height: 90,
-                    quality: 0.8
-                });
-                
-                if (isCancelled) return;
-                setFirstFrameUrl(firstUrl);
-                
-                // Extract last frame (only if clip is long enough) - 16:9 aspect ratio
-                if (lastFrameTime > firstFrameTime + 1) {
-                    const lastUrl = await extractVideoFrame(videoUrl, lastFrameTime, {
+                if (mediaNode.type === NodeType.IMAGE) {
+                    // For images: Load the image URL directly
+                    const imageUrl = await mediaService.getMediaUrl(mediaNode.data.url);
+                    if (!isCancelled) {
+                        setImageThumbnailUrl(imageUrl);
+                        setThumbnailsLoading(false);
+                    }
+                } else if (mediaNode.type === NodeType.VIDEO) {
+                    // For videos: Extract first and last frame thumbnails
+                    const videoUrl = await mediaService.getMediaUrl(mediaNode.data.url);
+                    const duration = mediaNode.data.duration || clipDuration;
+                    const trimStart = cell.trimStart || 0;
+                    const trimEnd = cell.trimEnd || 0;
+                    
+                    // First frame: at trimStart (or 0.1s to avoid black frames)
+                    const firstFrameTime = Math.max(0.1, trimStart);
+                    // Last frame: at end minus trimEnd (or 0.1s before end)
+                    const lastFrameTime = Math.max(0, duration - trimEnd - 0.1);
+                    
+                    // Extract first frame - 16:9 aspect ratio (160x90)
+                    const firstUrl = await extractVideoFrame(videoUrl, firstFrameTime, {
                         width: 160,
                         height: 90,
                         quality: 0.8
                     });
                     
                     if (isCancelled) return;
-                    setLastFrameUrl(lastUrl);
+                    setFirstFrameUrl(firstUrl);
+                    
+                    // Extract last frame (only if clip is long enough) - 16:9 aspect ratio
+                    if (lastFrameTime > firstFrameTime + 1) {
+                        const lastUrl = await extractVideoFrame(videoUrl, lastFrameTime, {
+                            width: 160,
+                            height: 90,
+                            quality: 0.8
+                        });
+                        
+                        if (isCancelled) return;
+                        setLastFrameUrl(lastUrl);
+                    }
+                    
+                    if (!isCancelled) {
+                        setThumbnailsLoading(false);
+                    }
                 }
-                
-                setThumbnailsLoading(false);
             } catch (error) {
-                console.warn('Failed to extract clip thumbnails:', error);
+                console.warn('Failed to load clip thumbnails:', error);
                 if (!isCancelled) {
                     setThumbnailsLoading(false);
                 }
             }
         };
         
-        extractThumbnails();
+        loadThumbnails();
         
         return () => {
             isCancelled = true;
         };
-    }, [cell.id, mediaNode?.data.url]); // Only re-run if clip ID or video URL changes
+    }, [cell.id, mediaNode?.data.url, mediaNode?.type, clipDuration, cell.trimStart, cell.trimEnd]); // Re-run if clip ID, media URL, type, or trim changes
 
     // Handle clip deletion
     const handleDelete = (e: React.MouseEvent) => {
@@ -417,7 +432,8 @@ const TimelineClip: React.FC<TimelineClipProps> = ({
                     filter: 'none !important'
                 }}
             >
-                {/* Premiere-style: First and last frame thumbnails at edges */}
+                {/* Premiere-style: First and last frame thumbnails at edges for videos */}
+                {/* For images: Display the image as thumbnail */}
                 <div className="timeline-clip-thumbnails" style={{ 
                     display: 'flex',
                     width: '100%',
@@ -426,50 +442,100 @@ const TimelineClip: React.FC<TimelineClipProps> = ({
                     overflow: 'hidden',
                     background: '#406a94' /* Bluish background for entire clip */
                 }}>
-                    {/* First frame thumbnail - left edge, full 16:9 image */}
-                    {firstFrameUrl && (
-                        <img 
-                            src={firstFrameUrl} 
-                            alt="First frame"
-                            style={{
+                    {mediaNode?.type === NodeType.IMAGE ? (
+                        /* Image thumbnails: Two full thumbnails at left and right edges with natural aspect ratio */
+                        imageThumbnailUrl ? (
+                            <>
+                                {/* Left edge thumbnail - maintains image's natural aspect ratio */}
+                                <img 
+                                    src={imageThumbnailUrl} 
+                                    alt="Image thumbnail left"
+                                    style={{
+                                        position: 'absolute',
+                                        left: 0,
+                                        top: 0,
+                                        height: '100%',
+                                        width: 'auto' /* Let width be determined by image's aspect ratio */
+                                    }}
+                                    draggable={false}
+                                />
+                                
+                                {/* Right edge thumbnail - maintains image's natural aspect ratio */}
+                                <img 
+                                    src={imageThumbnailUrl} 
+                                    alt="Image thumbnail right"
+                                    style={{
+                                        position: 'absolute',
+                                        right: 0,
+                                        top: 0,
+                                        height: '100%',
+                                        width: 'auto' /* Let width be determined by image's aspect ratio */
+                                    }}
+                                    draggable={false}
+                                />
+                            </>
+                        ) : (
+                            /* Loading state for image */
+                            <div style={{
                                 position: 'absolute',
-                                left: 0,
-                                top: 0,
-                                height: '100%',
-                                width: 'auto' /* Let width be determined by aspect ratio */
-                            }}
-                            draggable={false}
-                        />
-                    )}
-                    
-                    {/* Last frame thumbnail - right edge, full 16:9 image */}
-                    {lastFrameUrl && (
-                        <img 
-                            src={lastFrameUrl} 
-                            alt="Last frame"
-                            style={{
-                                position: 'absolute',
-                                right: 0,
-                                top: 0,
-                                height: '100%',
-                                width: 'auto' /* Let width be determined by aspect ratio */
-                            }}
-                            draggable={false}
-                        />
-                    )}
-                    
-                    {/* Loading indicator */}
-                    {thumbnailsLoading && (
-                        <div style={{
-                            position: 'absolute',
-                            inset: 0,
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            background: 'rgba(64, 106, 148, 0.8)' /* Bluish with opacity */
-                        }}>
-                            <div className="loading-spinner" style={{ width: 16, height: 16 }} />
-                        </div>
+                                inset: 0,
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                background: 'rgba(64, 106, 148, 0.8)' /* Bluish with opacity */
+                            }}>
+                                <div className="loading-spinner" style={{ width: 16, height: 16 }} />
+                            </div>
+                        )
+                    ) : (
+                        /* Video thumbnails: First and last frame at edges */
+                        <>
+                            {/* First frame thumbnail - left edge, full 16:9 image */}
+                            {firstFrameUrl && (
+                                <img 
+                                    src={firstFrameUrl} 
+                                    alt="First frame"
+                                    style={{
+                                        position: 'absolute',
+                                        left: 0,
+                                        top: 0,
+                                        height: '100%',
+                                        width: 'auto' /* Let width be determined by aspect ratio */
+                                    }}
+                                    draggable={false}
+                                />
+                            )}
+                            
+                            {/* Last frame thumbnail - right edge, full 16:9 image */}
+                            {lastFrameUrl && (
+                                <img 
+                                    src={lastFrameUrl} 
+                                    alt="Last frame"
+                                    style={{
+                                        position: 'absolute',
+                                        right: 0,
+                                        top: 0,
+                                        height: '100%',
+                                        width: 'auto' /* Let width be determined by aspect ratio */
+                                    }}
+                                    draggable={false}
+                                />
+                            )}
+                            
+                            {/* Loading indicator for video */}
+                            {thumbnailsLoading && (
+                                <div style={{
+                                    position: 'absolute',
+                                    inset: 0,
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    background: 'rgba(64, 106, 148, 0.8)' /* Bluish with opacity */
+                                }}>
+                                    <div className="loading-spinner" style={{ width: 16, height: 16 }} />
+                                </div>
+                            )}
+                        </>
                     )}
                 </div>
 

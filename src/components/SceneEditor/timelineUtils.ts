@@ -72,7 +72,7 @@ export const getEffectiveClipDuration = (cell: SceneEditorCell, nodes: any[]): n
 
 /**
  * Calculate start time for a cell based on its position and previous cells
- * ALWAYS recalculates to prevent white space bugs when opening scene editor
+ * Legacy function - kept for reference but migrateToTimeBasedLayout uses optimized approach
  */
 export const calculateStartTime = (
     cell: SceneEditorCell,
@@ -88,33 +88,36 @@ export const calculateStartTime = (
         .filter(c => c.position < cell.position)
         .sort((a, b) => a.position - b.position);
 
-    console.log(`🔍 calculateStartTime: Cell ${cell.id} at position ${cell.position}, previous cells:`,
-        previousCells.map(pc => ({ id: pc.id, position: pc.position, duration: pc.duration, effectiveDuration: getEffectiveDuration(pc) })));
-
     // Sum up effective durations of previous cells (accounting for trimming)
     previousCells.forEach(prevCell => {
         const effectiveDuration = getEffectiveDuration(prevCell);
         startTime += effectiveDuration;
-        console.log(`🔍 Adding ${effectiveDuration}s from cell ${prevCell.id}, total startTime: ${startTime}s`);
     });
 
-    console.log(`🔍 Final startTime for cell ${cell.id}: ${startTime}s`);
     return startTime;
 };
 
 /**
  * Migrate position-based cells to time-based layout
  * ALWAYS recalculates startTime to prevent white space bugs
+ * Optimized to O(n) instead of O(n^2)
  */
 export const migrateToTimeBasedLayout = (
     cells: SceneEditorCell[],
     nodes: any[]
 ): SceneEditorCell[] => {
-    return cells.map(cell => {
-        // ALWAYS recalculate duration and startTime for consistency
-        // This ensures no white space appears when opening scene editor with existing cells
+    // Sort cells by position first to enable O(n) calculation
+    const sortedCells = [...cells].sort((a, b) => a.position - b.position);
+    
+    let cumulativeTime = 0;
+    
+    return sortedCells.map(cell => {
         const duration = getClipDuration(cell, nodes);
-        const startTime = calculateStartTime(cell, cells, nodes);
+        const startTime = cumulativeTime;
+        
+        // Update cumulative time for next cell
+        const effectiveDuration = getEffectiveDuration({ ...cell, duration });
+        cumulativeTime += effectiveDuration;
 
         return {
             ...cell,

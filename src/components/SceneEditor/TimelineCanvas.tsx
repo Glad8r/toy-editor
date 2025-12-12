@@ -215,7 +215,7 @@ const TimelineCanvas: React.FC<TimelineCanvasProps> = ({
     };
 
     return (
-        <div className={`timeline-canvas ${timelineMode}-mode`}>
+        <div className={`timeline-canvas ${timelineMode}-mode`} style={{ position: 'relative' }}>
             {/* Shared scroll container for ruler and clips */}
             <div className="timeline-scroll-container">
                 {/* Timeline Ruler - Sticky at top */}
@@ -233,36 +233,6 @@ const TimelineCanvas: React.FC<TimelineCanvasProps> = ({
                     {/* ============================================ */}
                     {/* TRACK 1 - ACTIVE TRACK */}
                     {/* ============================================ */}
-                    
-                    {/* Top horizontal line - Track 1 top border */}
-                    <div
-                        className="timeline-track-border-top"
-                        style={{
-                            position: 'absolute',
-                            top: 0,
-                            left: 0,
-                            right: 0,
-                            height: '1px',
-                            backgroundColor: '#e5e7eb', // gray-200
-                            zIndex: 1,
-                            pointerEvents: 'none'
-                        }}
-                    />
-                    
-                    {/* Bottom horizontal line - Track 1 bottom border (80px from top) */}
-                    <div
-                        className="timeline-track-border-bottom"
-                        style={{
-                            position: 'absolute',
-                            top: '80px', // Position at bottom of track 1 (track height is 80px)
-                            left: 0,
-                            right: 0,
-                            height: '1px',
-                            backgroundColor: '#e5e7eb', // gray-200
-                            zIndex: 1,
-                            pointerEvents: 'none'
-                        }}
-                    />
                     
                     {/* Active Track 1 - renders all clips */}
                     <TimelineTrack
@@ -318,6 +288,7 @@ const TimelineCanvas: React.FC<TimelineCanvasProps> = ({
                             top: '80px', // Position at top of track 2 (below track 1)
                             left: 0,
                             right: 0,
+                            width: `${Math.max(timelineWidth, window.innerWidth * 0.9)}px`,
                             height: '1px',
                             backgroundColor: '#d1d5db', // gray-300 (slightly different to indicate mockup)
                             zIndex: 1,
@@ -334,6 +305,7 @@ const TimelineCanvas: React.FC<TimelineCanvasProps> = ({
                             top: '160px', // Position at bottom of track 2 (80px + 80px)
                             left: 0,
                             right: 0,
+                            width: `${Math.max(timelineWidth, window.innerWidth * 0.9)}px`,
                             height: '1px',
                             backgroundColor: '#d1d5db', // gray-300 (slightly different to indicate mockup)
                             zIndex: 1,
